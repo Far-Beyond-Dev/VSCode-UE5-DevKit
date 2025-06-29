@@ -2,7 +2,7 @@
   "name": "ue5-dev-tools",
   "displayName": "UE5.6 Development Tools",
   "description": "Comprehensive Unreal Engine 5.6 development tools for VS Code",
-  "version": "1.0.1",
+  "version": "1.0.0",
   "publisher": "ue5-dev",
   "engines": {
     "vscode": "^1.74.0"
