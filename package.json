@@ -2,7 +2,7 @@
     "name": "ue5-dev-tools",
     "displayName": "UE5 Development Tools",
     "description": "Comprehensive development tools for Unreal Engine 5 projects",
-    "version": "2.0.1",
+    "version": "2.0.0",
     "publisher": "Far-Beyond-LLC",
     "engines": {
         "vscode": "^1.74.0"
