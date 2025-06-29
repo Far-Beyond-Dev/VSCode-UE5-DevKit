@@ -16,8 +16,7 @@
         "out",
         "resources",
         "package.json",
-        "README.md",
-        "CHANGELOG.md"
+        "README.md"
     ],
     "contributes": {
         "commands": [
