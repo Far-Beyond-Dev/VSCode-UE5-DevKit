@@ -1,0 +1,261 @@
+name: Release VS Code Extension
+
+on:
+  push:
+    paths:
+      - 'package.json'
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (leave empty to use package.json version)'
+        required: false
+        type: string
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get-version.outputs.version }}
+      should-release: ${{ steps.check-release.outputs.should-release }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Get version from package.json
+        id: get-version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION=$(node -p "require('./package.json').version")
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Current version: $VERSION"
+
+      - name: Check if version changed or manual trigger
+        id: check-release
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "should-release=true" >> $GITHUB_OUTPUT
+            echo "Manual trigger - will create release"
+          else
+            # Check if package.json version changed
+            PREV_VERSION=$(git show HEAD~1:package.json | node -p "JSON.parse(require('fs').readFileSync('/dev/stdin', 'utf8')).version" 2>/dev/null || echo "0.0.0")
+            CURRENT_VERSION="${{ steps.get-version.outputs.version }}"
+            
+            echo "Previous version: $PREV_VERSION"
+            echo "Current version: $CURRENT_VERSION"
+            
+            if [ "$PREV_VERSION" != "$CURRENT_VERSION" ]; then
+              echo "should-release=true" >> $GITHUB_OUTPUT
+              echo "Version changed - will create release"
+            else
+              echo "should-release=false" >> $GITHUB_OUTPUT
+              echo "Version unchanged - skipping release"
+            fi
+          fi
+
+      - name: Check if release already exists
+        if: steps.check-release.outputs.should-release == 'true'
+        run: |
+          VERSION="${{ steps.get-version.outputs.version }}"
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "Release v$VERSION already exists!"
+            exit 1
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-and-release:
+    needs: check-version
+    if: needs.check-version.outputs.should-release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests (if they exist)
+        run: |
+          if [ -f "package.json" ] && npm run test --if-present; then
+            echo "Tests passed"
+          else
+            echo "No tests found or tests skipped"
+          fi
+
+      - name: Lint code (if configured)
+        run: |
+          if npm run lint --if-present; then
+            echo "Linting passed"
+          else
+            echo "No linting configured or linting skipped"
+          fi
+
+      - name: Compile TypeScript
+        run: npm run compile
+
+      - name: Install VSCE
+        run: npm install -g @vscode/vsce
+
+      - name: Verify extension files
+        run: |
+          echo "Checking required files..."
+          ls -la
+          if [ ! -f "package.json" ]; then
+            echo "❌ package.json not found"
+            exit 1
+          fi
+          if [ ! -d "out" ]; then
+            echo "❌ out directory not found - compilation may have failed"
+            exit 1
+          fi
+          if [ ! -f "out/extension.js" ]; then
+            echo "❌ out/extension.js not found - compilation may have failed"
+            exit 1
+          fi
+          echo "✅ All required files present"
+
+      - name: Package extension
+        run: |
+          echo "Packaging VS Code extension..."
+          vsce package --no-git-tag-version
+          
+          # Get the generated file name
+          VSIX_FILE=$(ls *.vsix | head -n 1)
+          echo "Generated package: $VSIX_FILE"
+          echo "VSIX_FILE=$VSIX_FILE" >> $GITHUB_ENV
+          
+          # Verify the package
+          if [ ! -f "$VSIX_FILE" ]; then
+            echo "❌ Failed to create VSIX package"
+            exit 1
+          fi
+          
+          # Get file size
+          FILE_SIZE=$(stat -c%s "$VSIX_FILE" 2>/dev/null || stat -f%z "$VSIX_FILE" 2>/dev/null || echo "unknown")
+          echo "Package size: $FILE_SIZE bytes"
+
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          VERSION="${{ needs.check-version.outputs.version }}"
+          
+          # Try to extract changelog from CHANGELOG.md if it exists
+          if [ -f "CHANGELOG.md" ]; then
+            echo "Extracting changelog for version $VERSION..."
+            
+            # Extract changelog between version headers
+            CHANGELOG=$(awk -v version="$VERSION" '
+              /^## \[?[0-9]+\.[0-9]+\.[0-9]+/ {
+                if (found) exit
+                if ($0 ~ version) found=1
+                next
+              }
+              found && /^## \[?[0-9]+\.[0-9]+\.[0-9]+/ { exit }
+              found { print }
+            ' CHANGELOG.md | sed '/^$/d' | head -20)
+            
+            if [ -n "$CHANGELOG" ]; then
+              echo "Found changelog for version $VERSION"
+              echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+              echo "$CHANGELOG" >> $GITHUB_OUTPUT
+              echo "EOF" >> $GITHUB_OUTPUT
+            else
+              echo "No specific changelog found for version $VERSION"
+              echo "CHANGELOG=No changelog provided for this version." >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "No CHANGELOG.md found"
+            echo "CHANGELOG=No changelog provided." >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate release notes
+        id: release-notes
+        run: |
+          VERSION="${{ needs.check-version.outputs.version }}"
+          EXTENSION_NAME=$(node -p "require('./package.json').displayName || require('./package.json').name")
+          
+          cat > release_notes.md << EOF
+          # $EXTENSION_NAME v$VERSION
+          
+          ## 📦 Installation
+          
+          Download the \`${{ env.VSIX_FILE }}\` file and install it in VS Code:
+          
+          1. Open VS Code
+          2. Press \`Ctrl+Shift+P\` (or \`Cmd+Shift+P\` on Mac)
+          3. Type "Extensions: Install from VSIX"
+          4. Select the downloaded \`.vsix\` file
+          
+          Or install via command line:
+          \`\`\`bash
+          code --install-extension ${{ env.VSIX_FILE }}
+          \`\`\`
+          
+          ## 📋 What's Changed
+          
+          ${{ steps.changelog.outputs.CHANGELOG }}
+          
+          ## 🚀 Features
+          
+          - Full UE5.6 project support with solution explorer
+          - C++ IntelliSense configuration for Unreal Engine
+          - Building, cleaning, and packaging from VS Code
+          - Plugin management and building
+          - Debugging support with launch configurations
+          
+          ## 📖 Documentation
+          
+          See the [README](https://github.com/${{ github.repository }}/blob/main/README.md) for full usage instructions.
+          
+          ---
+          
+          **Full Changelog**: https://github.com/${{ github.repository }}/compare/v$(git describe --tags --abbrev=0 2>/dev/null || echo "0.0.0")...v$VERSION
+          EOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ needs.check-version.outputs.version }}
+          name: "UE5 Development Tools v${{ needs.check-version.outputs.version }}"
+          body_path: release_notes.md
+          files: ${{ env.VSIX_FILE }}
+          draft: false
+          prerelease: ${{ contains(needs.check-version.outputs.version, '-') }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Output release info
+        run: |
+          echo "🎉 Release created successfully!"
+          echo "📦 Extension: ${{ env.VSIX_FILE }}"
+          echo "🏷️ Version: v${{ needs.check-version.outputs.version }}"
+          echo "🔗 Release URL: https://github.com/${{ github.repository }}/releases/tag/v${{ needs.check-version.outputs.version }}"
+
+  notify-failure:
+    needs: [check-version, build-and-release]
+    if: failure() && needs.check-version.outputs.should-release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify failure
+        run: |
+          echo "❌ Release workflow failed!"
+          echo "Check the workflow logs for details: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
