@@ -147,7 +147,7 @@ jobs:
       - name: Package extension
         run: |
           echo "Packaging VS Code extension..."
-          vsce package --no-git-tag-version --out .
+          vsce package --no-git-tag-version --allow-unused-files-patterns --out .
           
           # Get the generated file name
           VSIX_FILE=$(ls *.vsix | head -n 1)
