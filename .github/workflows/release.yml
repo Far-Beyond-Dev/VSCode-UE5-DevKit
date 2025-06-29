@@ -87,10 +87,18 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '18'
-          cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          echo "Installing dependencies without lock file..."
+          npm install
+
+      - name: Generate package-lock.json for future runs
+        run: |
+          echo "Generating package-lock.json..."
+          # This will be available for the next run
+          npm shrinkwrap --dev
+          ls -la npm-shrinkwrap.json || echo "Shrinkwrap not created"
 
       - name: Run tests (if they exist)
         run: |
@@ -109,10 +117,14 @@ jobs:
           fi
 
       - name: Compile TypeScript
-        run: npm run compile
+        run: |
+          echo "Compiling TypeScript..."
+          npm run compile
 
       - name: Install VSCE
-        run: npm install -g @vscode/vsce
+        run: |
+          echo "Installing VSCE globally..."
+          npm install -g @vscode/vsce
 
       - name: Verify extension files
         run: |
@@ -124,10 +136,12 @@ jobs:
           fi
           if [ ! -d "out" ]; then
             echo "❌ out directory not found - compilation may have failed"
+            ls -la
             exit 1
           fi
           if [ ! -f "out/extension.js" ]; then
             echo "❌ out/extension.js not found - compilation may have failed"
+            ls -la out/
             exit 1
           fi
           echo "✅ All required files present"
@@ -135,7 +149,7 @@ jobs:
       - name: Package extension
         run: |
           echo "Packaging VS Code extension..."
-          vsce package --no-git-tag-version
+          vsce package --no-git-tag-version --out .
           
           # Get the generated file name
           VSIX_FILE=$(ls *.vsix | head -n 1)
@@ -145,6 +159,7 @@ jobs:
           # Verify the package
           if [ ! -f "$VSIX_FILE" ]; then
             echo "❌ Failed to create VSIX package"
+            ls -la
             exit 1
           fi
           
@@ -231,7 +246,7 @@ jobs:
           EOF
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.check-version.outputs.version }}
           name: "UE5 Development Tools v${{ needs.check-version.outputs.version }}"
