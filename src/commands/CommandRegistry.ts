@@ -4,9 +4,10 @@ import { ProjectManager } from '../managers/ProjectManager';
 import { BuildManager } from '../managers/BuildManager';
 import { ConfigurationManager } from '../managers/ConfigurationManager';
 import { SolutionExplorer } from '../ui/SolutionExplorer';
-import { SolutionItem } from '../types';
+import { SolutionItem, UE5Project } from '../types';
 import { spawn } from 'child_process';
 import { PathUtils } from '../utils/PathUtils';
+import * as path from 'path';
 
 interface CommandDependencies {
     projectManager: ProjectManager;
@@ -139,33 +140,219 @@ export class CommandRegistry {
         }
 
         try {
-            const uatPath = PathUtils.getRunUATPath(enginePath);
+            // Show platform selection
+            const platforms = [
+                { label: 'Windows 64-bit', value: 'Win64' },
+                { label: 'Windows 32-bit', value: 'Win32' },
+                { label: 'Linux', value: 'Linux' },
+                { label: 'Mac', value: 'Mac' },
+                { label: 'Android', value: 'Android' },
+                { label: 'iOS', value: 'IOS' }
+            ];
             
-            // Show quick pick for platform selection
-            const platforms = ['Win64', 'Linux', 'Mac'];
-            const selectedPlatform = await vscode.window.showQuickPick(platforms, {
+            const selectedPlatformItem = await vscode.window.showQuickPick(platforms, {
                 placeHolder: 'Select target platform'
             });
             
-            if (!selectedPlatform) return;
+            if (!selectedPlatformItem) return;
+            const selectedPlatform = selectedPlatformItem.value;
 
-            // Show quick pick for configuration
-            const configurations = ['Development', 'Shipping'];
-            const selectedConfig = await vscode.window.showQuickPick(configurations, {
+            // Show configuration selection
+            const configurations = [
+                { label: 'Development - Debug symbols, some optimizations', value: 'Development' },
+                { label: 'Shipping - Full optimizations, no debug info', value: 'Shipping' },
+                { label: 'Test - Optimized with some debugging features', value: 'Test' }
+            ];
+            
+            const selectedConfigItem = await vscode.window.showQuickPick(configurations, {
                 placeHolder: 'Select build configuration'
             });
             
-            if (!selectedConfig) return;
+            if (!selectedConfigItem) return;
+            const selectedConfig = selectedConfigItem.value;
 
-            vscode.window.showInformationMessage(`Starting packaging for ${selectedPlatform} ${selectedConfig}...`);
+            // Get output directory
+            const defaultOutputPath = path.join(project.path, 'Packaged', `${selectedPlatform}_${selectedConfig}`);
+            const outputPath = await vscode.window.showInputBox({
+                prompt: 'Enter output directory for packaged project',
+                value: defaultOutputPath,
+                validateInput: (value) => {
+                    if (!value || value.trim().length === 0) {
+                        return 'Output path cannot be empty';
+                    }
+                    return null;
+                }
+            });
+
+            if (!outputPath) return;
+
+            // Start packaging with progress
+            await this.executePackaging(project, enginePath, selectedPlatform, selectedConfig, outputPath);
             
-            // This would be the actual packaging command
-            // For now, just show success message
-            vscode.window.showInformationMessage(`Packaging for ${selectedPlatform} ${selectedConfig} completed`);
-            
-        } catch (error) {
-            vscode.window.showErrorMessage('Packaging failed - check output for details');
+        } catch (error: any) {
+            vscode.window.showErrorMessage(`Packaging failed: ${error.message}`);
         }
+    }
+
+    private async executePackaging(
+        project: UE5Project, 
+        enginePath: string, 
+        platform: string, 
+        configuration: string, 
+        outputPath: string
+    ): Promise<void> {
+        const runUATPath = PathUtils.getRunUATPath(enginePath);
+        
+        // Ensure output directory exists
+        const fs = require('fs');
+        const path = require('path');
+        if (!fs.existsSync(outputPath)) {
+            fs.mkdirSync(outputPath, { recursive: true });
+        }
+
+        // Build the UAT command for packaging
+        const uatCommand = [
+            `"${runUATPath}"`,
+            'BuildCookRun',
+            `-project="${project.uprojectPath}"`,
+            '-noP4',
+            `-platform=${platform}`,
+            `-clientconfig=${configuration}`,
+            `-serverconfig=${configuration}`,
+            '-cook',
+            '-allmaps',
+            '-build',
+            '-stage',
+            '-pak',
+            '-archive',
+            `-archivedirectory="${outputPath}"`,
+            '-utf8output'
+        ].join(' ');
+
+        console.log(`Packaging command: ${uatCommand}`);
+
+        // Show progress with cancellation support
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: `Packaging ${project.name}`,
+            cancellable: true
+        }, async (progress, token) => {
+            return new Promise<void>((resolve, reject) => {
+                progress.report({ increment: 0, message: `Starting packaging for ${platform} ${configuration}...` });
+
+                const { spawn } = require('child_process');
+                const child = spawn('cmd', ['/c', uatCommand], {
+                    cwd: project.path,
+                    stdio: ['pipe', 'pipe', 'pipe']
+                });
+
+                let totalOutput = '';
+                let currentStep = '';
+                let progressValue = 0;
+
+                // Handle cancellation
+                token.onCancellationRequested(() => {
+                    child.kill('SIGTERM');
+                    reject(new Error('Packaging cancelled by user'));
+                });
+
+                // Parse stdout for progress
+                child.stdout.on('data', (data: Buffer) => {
+                    const output = data.toString();
+                    totalOutput += output;
+                    console.log(output);
+
+                    // Parse progress from UAT output
+                    const lines = output.split('\n');
+                    for (const line of lines) {
+                        const trimmedLine = line.trim();
+                        
+                        // Detect different packaging phases
+                        if (trimmedLine.includes('Parsing command line')) {
+                            currentStep = 'Initializing...';
+                            progressValue = 5;
+                        } else if (trimmedLine.includes('Building') && trimmedLine.includes('Editor')) {
+                            currentStep = 'Building project...';
+                            progressValue = 15;
+                        } else if (trimmedLine.includes('Cooking')) {
+                            currentStep = 'Cooking content...';
+                            progressValue = 35;
+                        } else if (trimmedLine.includes('Staging')) {
+                            currentStep = 'Staging files...';
+                            progressValue = 70;
+                        } else if (trimmedLine.includes('Creating pak file')) {
+                            currentStep = 'Creating package...';
+                            progressValue = 85;
+                        } else if (trimmedLine.includes('Moving staged files')) {
+                            currentStep = 'Finalizing...';
+                            progressValue = 95;
+                        }
+
+                        // Update progress if we detected a new step
+                        if (currentStep) {
+                            progress.report({ 
+                                increment: progressValue - (progress as any).lastValue || 0,
+                                message: currentStep 
+                            });
+                            (progress as any).lastValue = progressValue;
+                            currentStep = '';
+                        }
+
+                        // Look for specific progress indicators
+                        const progressMatch = trimmedLine.match(/(\d+)%/);
+                        if (progressMatch) {
+                            const percent = parseInt(progressMatch[1]);
+                            progress.report({ 
+                                increment: percent - progressValue,
+                                message: `Processing... ${percent}%`
+                            });
+                            progressValue = percent;
+                        }
+                    }
+                });
+
+                // Handle stderr
+                child.stderr.on('data', (data: Buffer) => {
+                    const output = data.toString();
+                    totalOutput += output;
+                    console.error(output);
+                });
+
+                // Handle completion
+                child.on('close', (code: number) => {
+                    if (code === 0) {
+                        progress.report({ increment: 100, message: 'Packaging completed successfully!' });
+                        
+                        vscode.window.showInformationMessage(
+                            `Project packaged successfully for ${platform} ${configuration}`,
+                            'Open Output Folder'
+                        ).then(selection => {
+                            if (selection === 'Open Output Folder') {
+                                vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(outputPath));
+                            }
+                        });
+                        
+                        resolve();
+                    } else {
+                        // Try to extract meaningful error from output
+                        const errorLines = totalOutput.split('\n').filter(line => 
+                            line.toLowerCase().includes('error') || 
+                            line.toLowerCase().includes('failed')
+                        );
+                        
+                        const errorMessage = errorLines.length > 0 
+                            ? errorLines.slice(-3).join('\n') 
+                            : `Packaging failed with exit code ${code}`;
+                            
+                        reject(new Error(errorMessage));
+                    }
+                });
+
+                child.on('error', (error: Error) => {
+                    reject(new Error(`Failed to start packaging process: ${error.message}`));
+                });
+            });
+        });
     }
 
     private refreshSolutionExplorer(deps: CommandDependencies) {
