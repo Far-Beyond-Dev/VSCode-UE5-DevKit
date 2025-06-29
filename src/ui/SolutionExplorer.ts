@@ -17,8 +17,13 @@ export class SolutionExplorer implements vscode.TreeDataProvider<SolutionItem> {
         private context: vscode.ExtensionContext
     ) {
         this.treeView = vscode.window.createTreeView('ue5SolutionExplorer', {
-            treeDataProvider: this
+            treeDataProvider: this,
+            showCollapseAll: true
         });
+        
+        // Set the tree view title with game controller icon
+        this.treeView.title = "UE5 Project";
+        this.treeView.description = this.project.name;
     }
 
     refresh(): void {
@@ -39,13 +44,19 @@ export class SolutionExplorer implements vscode.TreeDataProvider<SolutionItem> {
                 title: 'Open File',
                 arguments: [element.path]
             };
-            treeItem.contextValue = 'file';
             treeItem.iconPath = this.getFileIcon(element.name);
+
+            // Set context value based on file type
+            if (element.name.endsWith('.uproject')) {
+                treeItem.contextValue = 'uprojectFile';
+            } else {
+                treeItem.contextValue = 'file';
+            }
         } else if (element.type === 'plugin') {
             treeItem.iconPath = this.getUnrealIcon();
             treeItem.contextValue = element.buildable ? 'buildablePlugin' : 'plugin';
             treeItem.tooltip = `Plugin: ${element.name}${element.buildable ? ' (Buildable)' : ''}`;
-        } else {
+        } else if (element.type === 'folder') {
             treeItem.iconPath = new vscode.ThemeIcon('folder');
             treeItem.contextValue = 'folder';
         }
@@ -163,13 +174,16 @@ export class SolutionExplorer implements vscode.TreeDataProvider<SolutionItem> {
                         console.error(`Error reading plugin descriptor: ${error}`);
                     }
 
-                    pluginItems.push({
+                    // Create plugin item
+                    const pluginItem: SolutionItem = {
                         name: pluginDir,
                         path: pluginPath,
                         type: 'plugin',
                         buildable: isBuildable,
                         pluginDescriptor: pluginDescriptor
-                    });
+                    };
+
+                    pluginItems.push(pluginItem);
                 }
             }
         } catch (error) {

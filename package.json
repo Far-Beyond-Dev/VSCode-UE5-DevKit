@@ -28,32 +28,38 @@
             {
                 "command": "ue5.openEngine",
                 "title": "Open Engine",
-                "category": "UE5"
+                "category": "UE5",
+                "icon": "$(play)"
             },
             {
                 "command": "ue5.generateProjectFiles",
                 "title": "Generate Project Files",
-                "category": "UE5"
+                "category": "UE5",
+                "icon": "$(file-code)"
             },
             {
                 "command": "ue5.buildDevelopment",
                 "title": "Build Development",
-                "category": "UE5"
+                "category": "UE5",
+                "icon": "$(tools)"
             },
             {
                 "command": "ue5.buildShipping",
                 "title": "Build Shipping",
-                "category": "UE5"
+                "category": "UE5",
+                "icon": "$(rocket)"
             },
             {
                 "command": "ue5.buildDebug",
                 "title": "Build Debug",
-                "category": "UE5"
+                "category": "UE5",
+                "icon": "$(bug)"
             },
             {
                 "command": "ue5.cleanBuild",
                 "title": "Clean Build",
-                "category": "UE5"
+                "category": "UE5",
+                "icon": "$(trash)"
             },
             {
                 "command": "ue5.refreshSolutionExplorer",
@@ -63,14 +69,50 @@
             {
                 "command": "ue5.refreshCppConfig",
                 "title": "Refresh C++ Configuration",
-                "category": "UE5"
+                "category": "UE5",
+                "icon": "$(refresh)"
+            },
+            {
+                "command": "ue5.packageProject",
+                "title": "Package Project",
+                "category": "UE5",
+                "icon": "$(package)"
+            },
+            {
+                "command": "ue5.buildProjectInline",
+                "title": "Build",
+                "icon": "$(tools)"
+            },
+            {
+                "command": "ue5.openEngineInline", 
+                "title": "Open in Engine",
+                "icon": "$(play)"
+            },
+            {
+                "command": "ue5.packageProjectInline",
+                "title": "Package",
+                "icon": "$(package)"
+            },
+            {
+                "command": "ue5.buildPluginInline",
+                "title": "Build Plugin",
+                "icon": "$(tools)"
             }
         ],
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "ue5Explorer",
+                    "title": "UE5 Development",
+                    "icon": "$(game)"
+                }
+            ]
+        },
         "views": {
-            "explorer": [
+            "ue5Explorer": [
                 {
                     "id": "ue5SolutionExplorer",
-                    "name": "UE5 Solution Explorer",
+                    "name": "Project Explorer",
                     "when": "ue5.projectDetected"
                 }
             ]
@@ -81,6 +123,46 @@
                     "command": "ue5.refreshSolutionExplorer",
                     "when": "view == ue5SolutionExplorer",
                     "group": "navigation"
+                }
+            ],
+            "view/item/context": [
+                {
+                    "command": "ue5.buildDevelopment",
+                    "when": "view == ue5SolutionExplorer && viewItem == uprojectFile",
+                    "group": "ue5@1"
+                },
+                {
+                    "command": "ue5.openEngine", 
+                    "when": "view == ue5SolutionExplorer && viewItem == uprojectFile",
+                    "group": "ue5@2"
+                },
+                {
+                    "command": "ue5.packageProject",
+                    "when": "view == ue5SolutionExplorer && viewItem == uprojectFile", 
+                    "group": "ue5@3"
+                },
+                {
+                    "command": "ue5.buildDevelopment",
+                    "when": "view == ue5SolutionExplorer && viewItem == buildablePlugin",
+                    "group": "plugin@1"
+                }
+            ],
+            "view/item/inline": [
+                {
+                    "command": "ue5.buildProjectInline",
+                    "when": "view == ue5SolutionExplorer && viewItem == uprojectFile"
+                },
+                {
+                    "command": "ue5.openEngineInline", 
+                    "when": "view == ue5SolutionExplorer && viewItem == uprojectFile"
+                },
+                {
+                    "command": "ue5.packageProjectInline",
+                    "when": "view == ue5SolutionExplorer && viewItem == uprojectFile"
+                },
+                {
+                    "command": "ue5.buildPluginInline",
+                    "when": "view == ue5SolutionExplorer && viewItem == buildablePlugin"
                 }
             ],
             "commandPalette": [
@@ -110,6 +192,10 @@
                 },
                 {
                     "command": "ue5.refreshCppConfig",
+                    "when": "ue5.projectDetected"
+                },
+                {
+                    "command": "ue5.packageProject",
                     "when": "ue5.projectDetected"
                 }
             ]

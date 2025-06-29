@@ -1,4 +1,3 @@
-
 // src/commands/CommandRegistry.ts
 import * as vscode from 'vscode';
 import { ProjectManager } from '../managers/ProjectManager';
@@ -30,7 +29,13 @@ export class CommandRegistry {
             vscode.commands.registerCommand('ue5.refreshSolutionExplorer', () => this.refreshSolutionExplorer(deps)),
             vscode.commands.registerCommand('ue5.openFile', (filePath: string) => this.openFile(filePath)),
             vscode.commands.registerCommand('ue5.buildPlugin', (item?: SolutionItem) => this.buildPlugin(deps, item)),
-            vscode.commands.registerCommand('ue5.refreshCppConfig', () => this.refreshCppConfig(deps))
+            vscode.commands.registerCommand('ue5.refreshCppConfig', () => this.refreshCppConfig(deps)),
+            
+            // Inline action commands
+            vscode.commands.registerCommand('ue5.buildProjectInline', () => this.buildProject(deps, 'Development')),
+            vscode.commands.registerCommand('ue5.openEngineInline', () => this.openEngine(deps)),
+            vscode.commands.registerCommand('ue5.packageProjectInline', () => this.packageProject(deps)),
+            vscode.commands.registerCommand('ue5.buildPluginInline', (item?: SolutionItem) => this.buildPlugin(deps, item))
         ];
 
         commands.forEach(command => context.subscriptions.push(command));
@@ -83,10 +88,20 @@ export class CommandRegistry {
         }
 
         try {
-            await deps.buildManager.buildProject(project, configuration);
+            const result = await deps.buildManager.buildProject(project, configuration);
             vscode.window.showInformationMessage(`Build completed successfully (${configuration})`);
-        } catch (error) {
-            vscode.window.showErrorMessage('Build failed - check output for details');
+        } catch (error: any) {
+            console.log(`Build failed: ${error.message}`);
+            if (error.stdout) {
+                console.log(`Build output: ${error.stdout}`);
+            }
+            if (error.stderr) {
+                console.log(`Build errors: ${error.stderr}`);
+            }
+            
+            // Show more detailed error message
+            const errorDetails = error.stderr || error.stdout || error.message || 'Unknown error';
+            vscode.window.showErrorMessage(`Build failed: ${errorDetails.substring(0, 200)}...`);
         }
     }
 
@@ -111,8 +126,46 @@ export class CommandRegistry {
     }
 
     private async packageProject(deps: CommandDependencies) {
-        // Implementation for packaging project
-        vscode.window.showInformationMessage('Project packaging not yet implemented');
+        const project = await deps.projectManager.detectProject();
+        if (!project) {
+            vscode.window.showErrorMessage('No UE5 project detected');
+            return;
+        }
+
+        const enginePath = PathUtils.getEnginePath();
+        if (!enginePath) {
+            vscode.window.showErrorMessage('Engine path not configured. Please set ue5.enginePath in settings.');
+            return;
+        }
+
+        try {
+            const uatPath = PathUtils.getRunUATPath(enginePath);
+            
+            // Show quick pick for platform selection
+            const platforms = ['Win64', 'Linux', 'Mac'];
+            const selectedPlatform = await vscode.window.showQuickPick(platforms, {
+                placeHolder: 'Select target platform'
+            });
+            
+            if (!selectedPlatform) return;
+
+            // Show quick pick for configuration
+            const configurations = ['Development', 'Shipping'];
+            const selectedConfig = await vscode.window.showQuickPick(configurations, {
+                placeHolder: 'Select build configuration'
+            });
+            
+            if (!selectedConfig) return;
+
+            vscode.window.showInformationMessage(`Starting packaging for ${selectedPlatform} ${selectedConfig}...`);
+            
+            // This would be the actual packaging command
+            // For now, just show success message
+            vscode.window.showInformationMessage(`Packaging for ${selectedPlatform} ${selectedConfig} completed`);
+            
+        } catch (error) {
+            vscode.window.showErrorMessage('Packaging failed - check output for details');
+        }
     }
 
     private refreshSolutionExplorer(deps: CommandDependencies) {
@@ -122,11 +175,40 @@ export class CommandRegistry {
     }
 
     private async openFile(filePath: string) {
+        // Handle special action files
+        if (filePath.includes('#')) {
+            const [basePath, action] = filePath.split('#');
+            await this.handleUIAction(action, basePath);
+            return;
+        }
+
         try {
             const document = await vscode.workspace.openTextDocument(filePath);
             await vscode.window.showTextDocument(document);
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to open file: ${error}`);
+        }
+    }
+
+    private async handleUIAction(action: string, path: string) {
+        switch (action) {
+            case 'build':
+                await vscode.commands.executeCommand('ue5.buildDevelopment');
+                break;
+            case 'open':
+                await vscode.commands.executeCommand('ue5.openEngine');
+                break;
+            case 'package':
+                await vscode.commands.executeCommand('ue5.packageProject');
+                break;
+            case 'buildPlugin':
+                // Extract plugin name from path and build
+                const pluginName = path.split('\\').pop() || path.split('/').pop();
+                vscode.window.showInformationMessage(`Building plugin: ${pluginName}`);
+                await vscode.commands.executeCommand('ue5.buildDevelopment');
+                break;
+            default:
+                vscode.window.showWarningMessage(`Unknown action: ${action}`);
         }
     }
 

@@ -2,19 +2,19 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import { UE5Project } from '../types';
 import { PathUtils } from '../utils/PathUtils';
-import { CppPropertiesGenerator } from '../generators/CppPropertiesGenerator';
-import { LaunchConfigGenerator } from '../generators/LaunchConfigGenerator';
-import { TasksConfigGenerator } from '../generators/TasksConfigGenerator';
-import { SettingsConfigGenerator } from '../generators/SettingsConfigGenerator';
+
+const execAsync = promisify(exec);
 
 export class ConfigurationManager {
-    constructor(private outputChannel: vscode.OutputChannel) { }
+    constructor(private outputChannel: vscode.OutputChannel) {}
 
     async setupCppEnvironment(project: UE5Project): Promise<void> {
         try {
-            this.outputChannel.appendLine('=== Setting up C++ Environment ===');
+            this.outputChannel.appendLine('=== Setting up C++ Environment with Auto Refresh ===');
 
             const vscodeDir = path.join(project.path, '.vscode');
             if (!fs.existsSync(vscodeDir)) {
@@ -22,312 +22,468 @@ export class ConfigurationManager {
                 this.outputChannel.appendLine('Created .vscode directory');
             }
 
-            // Generate all configuration files
-            await this.generateCppProperties(project, vscodeDir);
+            // 1. FIRST: Refresh UE5 project files to generate compileCommands.json
+            await this.refreshUE5ProjectFiles(project);
+
+            // 2. THEN: Generate our configurations that use the compile commands database
+            await this.generateProperCppProperties(project, vscodeDir);
             await this.generateLaunchConfig(project, vscodeDir);
             await this.generateTasksConfig(project, vscodeDir);
-            await this.generateSettings(project, vscodeDir);
+            await this.generateOptimizedSettings(project, vscodeDir);
 
-            this.outputChannel.appendLine('C++ environment configured successfully');
+            this.outputChannel.appendLine('✅ C++ environment configured with full IntelliSense support');
 
-            // Reload workspace to pick up changes (if C++ extension is available)
+            // 3. Reload workspace to pick up changes
             await this.reloadCppWorkspace();
 
-            // Configure IntelliSense fallback
-            await this.configureIntelliSenseFallback();
-
         } catch (error) {
-            this.outputChannel.appendLine(`Error setting up C++ environment: ${error}`);
+            this.outputChannel.appendLine(`❌ Error setting up C++ environment: ${error}`);
             throw error;
         }
     }
 
     async finalizeCppSetup(): Promise<void> {
-        // This method can be called after a delay to ensure the C++ extension is fully loaded
         try {
             this.outputChannel.appendLine('Finalizing C++ setup...');
-
-            const cppExtension = vscode.extensions.getExtension('ms-vscode.cpptools');
-            if (cppExtension && cppExtension.isActive) {
-                // Now try the reload command
-                const commands = await vscode.commands.getCommands(true);
-                if (commands.includes('C_Cpp.ReloadWorkspace')) {
-                    await vscode.commands.executeCommand('C_Cpp.ReloadWorkspace');
-                    this.outputChannel.appendLine('C++ workspace reloaded (delayed)');
-                }
-
-                // Apply additional settings
-                await this.configureIntelliSenseFallback();
-            }
+            await this.configureIntelliSenseFallback();
         } catch (error) {
             this.outputChannel.appendLine(`Note: Delayed C++ setup had issues: ${error}`);
         }
     }
 
-    private async generateCppProperties(project: UE5Project, vscodeDir: string): Promise<void> {
-        try {
-            const generator = new CppPropertiesGenerator(project);
-            const config = generator.generate();
-            const configPath = path.join(vscodeDir, 'c_cpp_properties.json');
-
-            fs.writeFileSync(configPath, JSON.stringify(config, null, 4));
-            this.outputChannel.appendLine('Generated c_cpp_properties.json');
-        } catch (error) {
-            this.outputChannel.appendLine(`Error generating C++ properties: ${error}`);
-            throw error;
+    private async refreshUE5ProjectFiles(project: UE5Project): Promise<void> {
+        const enginePath = PathUtils.getEnginePath();
+        if (!enginePath) {
+            throw new Error('Engine path not configured');
         }
+
+        const ubtPath = PathUtils.getUnrealBuildToolPath(enginePath);
+        
+        this.outputChannel.appendLine('🔄 Refreshing UE5 project files for VS Code...');
+        
+        try {
+            // The EXACT command Epic uses internally for VS Code project generation
+            // CRITICAL: -vscode flag generates compileCommands.json and .code-workspace
+            const refreshCommand = `"${ubtPath}" -ProjectFiles -project="${project.uprojectPath}" -game -rocket -progress -platforms=Win64 -vscode`;
+            
+            this.outputChannel.appendLine(`Executing: ${refreshCommand}`);
+            
+            const { stdout, stderr } = await execAsync(refreshCommand, {
+                cwd: project.path,
+                timeout: 60000, // 60 second timeout
+                env: {
+                    ...process.env,
+                    PATH: process.env.PATH + `;${PathUtils.getEngineBinariesPath(enginePath)}`
+                }
+            });
+
+            if (stdout) {
+                this.outputChannel.appendLine('UBT Output:');
+                this.outputChannel.appendLine(stdout);
+            }
+            
+            if (stderr && !stderr.includes('warning')) {
+                this.outputChannel.appendLine('UBT Warnings:');
+                this.outputChannel.appendLine(stderr);
+            }
+
+            // Verify the compile commands were generated
+            await this.verifyCompileCommandsGenerated(project);
+            
+            this.outputChannel.appendLine('✅ UE5 project files refreshed successfully');
+            
+        } catch (error: any) {
+            this.outputChannel.appendLine(`❌ Failed to refresh project files: ${error.message}`);
+            
+            // Fallback: Try the engine's GenerateProjectFiles.bat script
+            await this.fallbackProjectFileGeneration(project, enginePath);
+        }
+    }
+
+    private async fallbackProjectFileGeneration(project: UE5Project, enginePath: string): Promise<void> {
+        this.outputChannel.appendLine('🔄 Trying fallback method: GenerateProjectFiles.bat...');
+        
+        try {
+            const generateScriptPath = path.join(enginePath, 'Engine', 'Build', 'BatchFiles', 'GenerateProjectFiles.bat');
+            
+            if (!fs.existsSync(generateScriptPath)) {
+                throw new Error('GenerateProjectFiles.bat not found in engine directory');
+            }
+
+            // Run GenerateProjectFiles.bat from the project directory
+            const fallbackCommand = `"${generateScriptPath}" -CurrentPlatform`;
+            
+            this.outputChannel.appendLine(`Fallback command: ${fallbackCommand}`);
+            
+            const { stdout, stderr } = await execAsync(fallbackCommand, {
+                cwd: project.path,
+                timeout: 120000 // 2 minute timeout for full generation
+            });
+
+            if (stdout) {
+                this.outputChannel.appendLine('GenerateProjectFiles Output:');
+                this.outputChannel.appendLine(stdout);
+            }
+            
+            if (stderr) {
+                this.outputChannel.appendLine('GenerateProjectFiles Warnings:');
+                this.outputChannel.appendLine(stderr);
+            }
+
+            this.outputChannel.appendLine('✅ Fallback project file generation completed');
+            
+        } catch (fallbackError: any) {
+            this.outputChannel.appendLine(`❌ Fallback also failed: ${fallbackError.message}`);
+            throw new Error('Both primary and fallback project file generation methods failed');
+        }
+    }
+
+    private async verifyCompileCommandsGenerated(project: UE5Project): Promise<void> {
+        const compileCommandsPaths = [
+            path.join(project.path, '.vscode', 'compileCommands_Default.json'),
+            path.join(project.path, '.vscode', `compileCommands_${project.name}.json`),
+            path.join(project.path, 'compile_commands.json')
+        ];
+
+        let found = false;
+        for (const compileCommandsPath of compileCommandsPaths) {
+            if (fs.existsSync(compileCommandsPath)) {
+                this.outputChannel.appendLine(`✅ Found compile commands: ${compileCommandsPath}`);
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            this.outputChannel.appendLine('⚠️  Warning: No compile commands database found');
+            this.outputChannel.appendLine('   IntelliSense will use fallback configuration');
+            this.outputChannel.appendLine('   Try running "Tools > Refresh Visual Studio Code Project" in UE5 Editor');
+        }
+    }
+
+    private async generateProperCppProperties(project: UE5Project, vscodeDir: string): Promise<void> {
+        const enginePath = PathUtils.getEnginePath();
+        const configPath = path.join(vscodeDir, 'c_cpp_properties.json');
+
+        // The PROPER c_cpp_properties.json that uses compile commands database
+        const cppProperties = {
+            configurations: [
+                {
+                    name: `${project.name} Editor Win64 Development`,
+                    intelliSenseMode: "windows-msvc-x64",
+                    
+                    // CRITICAL: Point to UE5's generated compile commands database
+                    compileCommands: "${workspaceFolder}/.vscode/compileCommands_Default.json",
+                    configurationProvider: "ms-vscode.cpptools",
+                    
+                    // Compiler settings
+                    compilerPath: this.getCompilerPath(),
+                    cStandard: "c17",
+                    cppStandard: "c++20",
+                    windowsSdkVersion: this.getWindowsSdkVersion(),
+                    
+                    // Minimal fallback paths (only used if compile commands fail)
+                    includePath: [
+                        "${workspaceFolder}/Intermediate/**",
+                        "${workspaceFolder}/Plugins/**", 
+                        "${workspaceFolder}/Source/**"
+                    ],
+                    
+                    // Minimal fallback defines (only used if compile commands fail)
+                    defines: [
+                        "UNICODE",
+                        "_UNICODE", 
+                        "__UNREAL__",
+                        "UBT_COMPILED_PLATFORM=Windows",
+                        "WITH_ENGINE=1",
+                        "WITH_UNREAL_DEVELOPER_TOOLS=1",
+                        "WITH_APPLICATION_CORE=1",
+                        "WITH_COREUOBJECT=1"
+                    ],
+                    
+                    // Browse database settings
+                    browse: {
+                        path: [
+                            "${workspaceFolder}",
+                            `${enginePath}/Engine/Source`,
+                            `${enginePath}/Engine/Plugins`
+                        ],
+                        limitSymbolsToIncludedHeaders: false,
+                        databaseFilename: "${workspaceFolder}/.vscode/browse.vc.db"
+                    }
+                }
+            ],
+            version: 4
+        };
+
+        fs.writeFileSync(configPath, JSON.stringify(cppProperties, null, 4));
+        this.outputChannel.appendLine('Generated c_cpp_properties.json with compile commands support');
+    }
+
+    private async generateOptimizedSettings(project: UE5Project, vscodeDir: string): Promise<void> {
+        const settingsPath = path.join(vscodeDir, 'settings.json');
+        
+        const optimizedSettings = {
+            // File associations for UE5
+            "files.associations": {
+                "*.uproject": "json",
+                "*.uplugin": "json", 
+                "*.h": "cpp",
+                "*.hpp": "cpp",
+                "*.inl": "cpp",
+                "*.inc": "cpp",
+                "*.usf": "hlsl",
+                "*.ush": "hlsl"
+            },
+
+            // Exclude UE5 build artifacts for performance
+            "files.exclude": {
+                "**/Binaries": true,
+                "**/Intermediate": true,
+                "**/Saved": true,
+                "**/.vs": true,
+                "**/DerivedDataCache": true,
+                "**/.vscode/browse.vc.db*": true
+            },
+
+            "search.exclude": {
+                "**/Binaries": true,
+                "**/Intermediate": true, 
+                "**/Saved": true,
+                "**/.vs": true,
+                "**/DerivedDataCache": true,
+                "**/Content/**/*.uasset": true,
+                "**/Content/**/*.umap": true
+            },
+
+            "files.watcherExclude": {
+                "**/Binaries/**": true,
+                "**/Intermediate/**": true,
+                "**/Saved/**": true,
+                "**/.vs/**": true,
+                "**/DerivedDataCache/**": true
+            },
+
+            // CRITICAL C++ IntelliSense settings for UE5
+            "C_Cpp.intelliSenseEngine": "default",
+            "C_Cpp.errorSquiggles": "enabled",
+            "C_Cpp.autoAddFileAssociations": false,
+            "C_Cpp.default.intelliSenseMode": "windows-msvc-x64", 
+            "C_Cpp.default.cppStandard": "c++20",
+            "C_Cpp.default.cStandard": "c17",
+            
+            // IMPORTANT: Enable IntelliSense fallback for UE5 projects
+            "C_Cpp.intelliSenseEngineFallback": "enabled",
+            
+            // Performance settings for large UE5 projects
+            "C_Cpp.intelliSenseUpdateDelay": 500,
+            "C_Cpp.workspaceParsingPriority": "highest",
+            "C_Cpp.enhancedColorization": "enabled",
+            "C_Cpp.inactiveRegionOpacity": 0.5,
+            "C_Cpp.dimInactiveRegions": true,
+            "C_Cpp.autocomplete": "default",
+            "C_Cpp.loggingLevel": "Warning",
+
+            // UE5 coding style settings
+            "editor.tabSize": 4,
+            "editor.insertSpaces": false,
+            "editor.detectIndentation": false,
+            "editor.rulers": [120],
+            "editor.wordWrap": "off",
+            "editor.trimAutoWhitespace": true,
+
+            // Language-specific overrides
+            "[cpp]": {
+                "editor.wordBasedSuggestions": false,
+                "editor.suggest.insertMode": "replace",
+                "editor.semanticHighlighting.enabled": true,
+                "editor.defaultFormatter": "ms-vscode.cpptools"
+            },
+
+            "[c]": {
+                "editor.wordBasedSuggestions": false,
+                "editor.suggest.insertMode": "replace",
+                "editor.semanticHighlighting.enabled": true,
+                "editor.defaultFormatter": "ms-vscode.cpptools"
+            }
+        };
+
+        // Merge with existing settings if they exist
+        if (fs.existsSync(settingsPath)) {
+            try {
+                const existingSettings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+                Object.assign(existingSettings, optimizedSettings);
+                fs.writeFileSync(settingsPath, JSON.stringify(existingSettings, null, 4));
+            } catch (error) {
+                fs.writeFileSync(settingsPath, JSON.stringify(optimizedSettings, null, 4));
+            }
+        } else {
+            fs.writeFileSync(settingsPath, JSON.stringify(optimizedSettings, null, 4));
+        }
+
+        this.outputChannel.appendLine('Generated optimized VS Code settings for UE5');
     }
 
     private async generateLaunchConfig(project: UE5Project, vscodeDir: string): Promise<void> {
-        try {
-            const generator = new LaunchConfigGenerator(project);
-            const config = generator.generate();
-            const configPath = path.join(vscodeDir, 'launch.json');
+        const enginePath = PathUtils.getEnginePath();
+        const launchPath = path.join(vscodeDir, 'launch.json');
+        
+        const launchConfig = {
+            version: "0.2.0",
+            configurations: [
+                {
+                    name: "Launch UE5 Editor",
+                    type: "cppvsdbg",
+                    request: "launch",
+                    program: path.join(enginePath, "Engine/Binaries/Win64/UnrealEditor.exe"),
+                    args: [`"${project.uprojectPath}"`],
+                    stopAtEntry: false,
+                    cwd: "${workspaceFolder}",
+                    environment: [],
+                    console: "externalTerminal",
+                    symbolSearchPath: `${enginePath}/Engine/Binaries/Win64;${project.path}/Binaries/Win64`,
+                    sourceFileMap: {
+                        "/Engine/Source/": `${enginePath}/Engine/Source/`
+                    },
+                    visualizerFile: `${enginePath}/Engine/Extras/VisualStudioDebugging/Unreal.natvis`
+                },
+                {
+                    name: "Launch UE5 Editor (DebugGame)",
+                    type: "cppvsdbg", 
+                    request: "launch",
+                    program: path.join(enginePath, "Engine/Binaries/Win64/UnrealEditor-Win64-DebugGame.exe"),
+                    args: [`"${project.uprojectPath}"`],
+                    stopAtEntry: false,
+                    cwd: "${workspaceFolder}",
+                    environment: [],
+                    console: "externalTerminal",
+                    symbolSearchPath: `${enginePath}/Engine/Binaries/Win64;${project.path}/Binaries/Win64`,
+                    sourceFileMap: {
+                        "/Engine/Source/": `${enginePath}/Engine/Source/`
+                    },
+                    visualizerFile: `${enginePath}/Engine/Extras/VisualStudioDebugging/Unreal.natvis`
+                },
+                {
+                    name: "Attach to UE5 Editor",
+                    type: "cppvsdbg",
+                    request: "attach", 
+                    processId: "${command:pickProcess}",
+                    symbolSearchPath: `${enginePath}/Engine/Binaries/Win64;${project.path}/Binaries/Win64`,
+                    sourceFileMap: {
+                        "/Engine/Source/": `${enginePath}/Engine/Source/`
+                    },
+                    visualizerFile: `${enginePath}/Engine/Extras/VisualStudioDebugging/Unreal.natvis`
+                }
+            ]
+        };
 
-            fs.writeFileSync(configPath, JSON.stringify(config, null, 4));
-            this.outputChannel.appendLine('Generated launch.json');
-        } catch (error) {
-            this.outputChannel.appendLine(`Error generating launch config: ${error}`);
-            throw error;
-        }
+        fs.writeFileSync(launchPath, JSON.stringify(launchConfig, null, 4));
+        this.outputChannel.appendLine('Generated launch configurations for debugging');
     }
 
     private async generateTasksConfig(project: UE5Project, vscodeDir: string): Promise<void> {
-        try {
-            const generator = new TasksConfigGenerator(project);
-            const config = generator.generate();
-            const configPath = path.join(vscodeDir, 'tasks.json');
-
-            fs.writeFileSync(configPath, JSON.stringify(config, null, 4));
-            this.outputChannel.appendLine('Generated tasks.json');
-        } catch (error) {
-            this.outputChannel.appendLine(`Error generating tasks config: ${error}`);
-            throw error;
-        }
-    }
-
-    private async generateSettings(project: UE5Project, vscodeDir: string): Promise<void> {
-        try {
-            const generator = new SettingsConfigGenerator(project);
-            const config = generator.generate();
-            const configPath = path.join(vscodeDir, 'settings.json');
-
-            // Merge with existing settings
-            if (fs.existsSync(configPath)) {
-                try {
-                    const existingSettings = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-                    Object.assign(existingSettings, config);
-                    fs.writeFileSync(configPath, JSON.stringify(existingSettings, null, 4));
-                    this.outputChannel.appendLine('Updated existing settings.json');
-                } catch (error) {
-                    fs.writeFileSync(configPath, JSON.stringify(config, null, 4));
-                    this.outputChannel.appendLine('Generated new settings.json (existing file was invalid)');
+        const tasksPath = path.join(vscodeDir, 'tasks.json');
+        const tasksConfig = {
+            version: "2.0.0",
+            tasks: [
+                {
+                    label: "UE5: Build Development Editor",
+                    type: "shell",
+                    command: "${command:ue5.buildDevelopment}",
+                    group: {
+                        kind: "build",
+                        isDefault: true
+                    },
+                    presentation: {
+                        echo: true,
+                        reveal: "always",
+                        focus: false,
+                        panel: "shared"
+                    }
+                },
+                {
+                    label: "UE5: Refresh Project Files",
+                    type: "shell",
+                    command: "${command:ue5.refreshCppConfig}",
+                    group: "build",
+                    presentation: {
+                        echo: true,
+                        reveal: "always",
+                        focus: false,
+                        panel: "shared"
+                    }
+                },
+                {
+                    label: "UE5: Generate Project Files",
+                    type: "shell",
+                    command: "${command:ue5.generateProjectFiles}",
+                    group: "build",
+                    presentation: {
+                        echo: true,
+                        reveal: "always",
+                        focus: false,
+                        panel: "shared"
+                    }
                 }
-            } else {
-                fs.writeFileSync(configPath, JSON.stringify(config, null, 4));
-                this.outputChannel.appendLine('Generated settings.json');
-            }
-        } catch (error) {
-            this.outputChannel.appendLine(`Error generating settings: ${error}`);
-            throw error;
-        }
+            ]
+        };
+
+        fs.writeFileSync(tasksPath, JSON.stringify(tasksConfig, null, 4));
+        this.outputChannel.appendLine('Generated tasks.json');
     }
 
     private async reloadCppWorkspace(): Promise<void> {
         try {
-            // Check if C/C++ extension is available
             const cppExtension = vscode.extensions.getExtension('ms-vscode.cpptools');
-            if (cppExtension) {
-                // Ensure the extension is activated
-                if (!cppExtension.isActive) {
-                    this.outputChannel.appendLine('Activating C/C++ extension...');
-                    await cppExtension.activate();
-                    this.outputChannel.appendLine('C/C++ extension activated');
-
-                    // Wait a bit for the extension to fully initialize
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-                }
-
-                // Check if the command is available before calling it
+            if (cppExtension && cppExtension.isActive) {
                 const commands = await vscode.commands.getCommands(true);
                 if (commands.includes('C_Cpp.ReloadWorkspace')) {
                     await vscode.commands.executeCommand('C_Cpp.ReloadWorkspace');
                     this.outputChannel.appendLine('C++ workspace reloaded');
-                } else {
-                    this.outputChannel.appendLine('C_Cpp.ReloadWorkspace command not yet available - extension may still be loading');
-
-                    // Try alternative approach - force refresh IntelliSense
-                    if (commands.includes('C_Cpp.RescanWorkspace')) {
-                        await vscode.commands.executeCommand('C_Cpp.RescanWorkspace');
-                        this.outputChannel.appendLine('C++ workspace rescanned');
-                    }
                 }
-            } else {
-                this.outputChannel.appendLine('C/C++ extension not found');
             }
         } catch (error) {
-            this.outputChannel.appendLine(`Note: Could not reload C++ workspace (${error}). This is usually fine - IntelliSense will pick up changes automatically.`);
-            // Don't throw here as this is not critical for the setup
+            this.outputChannel.appendLine(`Note: Could not reload C++ workspace: ${error}`);
         }
     }
 
     private async configureIntelliSenseFallback(): Promise<void> {
         try {
-            // Check if C/C++ extension is available and active
-            const cppExtension = vscode.extensions.getExtension('ms-vscode.cpptools');
-            if (!cppExtension) {
-                this.outputChannel.appendLine('C/C++ extension not available - skipping IntelliSense configuration');
-                return;
-            }
-
-            if (!cppExtension.isActive) {
-                this.outputChannel.appendLine('C/C++ extension not yet active - skipping IntelliSense configuration');
-                return;
-            }
-
-            // Configure IntelliSense fallback as mentioned in the documentation
             const config = vscode.workspace.getConfiguration('C_Cpp');
-
-            // Set multiple important IntelliSense settings
             await config.update('intelliSenseEngineFallback', 'enabled', vscode.ConfigurationTarget.Workspace);
             await config.update('intelliSenseEngine', 'default', vscode.ConfigurationTarget.Workspace);
-            await config.update('autocomplete', 'default', vscode.ConfigurationTarget.Workspace);
-
-            this.outputChannel.appendLine('IntelliSense configuration applied');
+            this.outputChannel.appendLine('IntelliSense fallback configured');
         } catch (error) {
-            this.outputChannel.appendLine(`Note: Could not configure IntelliSense settings (${error}). You can set these manually in VS Code settings.`);
-            // Don't throw here as this is not critical
+            this.outputChannel.appendLine(`Note: Could not configure IntelliSense settings: ${error}`);
         }
     }
 
-    async validateCppConfiguration(project: UE5Project): Promise<boolean> {
-        const vscodeDir = path.join(project.path, '.vscode');
-        const requiredFiles = [
-            'c_cpp_properties.json',
-            'launch.json',
-            'tasks.json',
-            'settings.json'
+    private getCompilerPath(): string {
+        return PathUtils.getVisualStudioCompilerPath();
+    }
+
+    private getWindowsSdkVersion(): string {
+        const sdkPaths = [
+            'C:/Program Files (x86)/Windows Kits/10/Include',
+            'C:/Program Files/Windows Kits/10/Include'
         ];
 
-        let isValid = true;
-
-        for (const file of requiredFiles) {
-            const filePath = path.join(vscodeDir, file);
-            if (!fs.existsSync(filePath)) {
-                this.outputChannel.appendLine(`Missing configuration file: ${file}`);
-                isValid = false;
-            } else {
+        for (const sdkPath of sdkPaths) {
+            if (fs.existsSync(sdkPath)) {
                 try {
-                    // Validate JSON syntax
-                    const content = fs.readFileSync(filePath, 'utf8');
-                    JSON.parse(content);
-                    this.outputChannel.appendLine(`Valid configuration file: ${file}`);
-                } catch (error) {
-                    this.outputChannel.appendLine(`Invalid JSON in configuration file: ${file}`);
-                    isValid = false;
-                }
-            }
-        }
-
-        return isValid;
-    }
-
-    async updateEnginePathInConfigs(project: UE5Project, newEnginePath: string): Promise<void> {
-        const vscodeDir = path.join(project.path, '.vscode');
-
-        // Update settings.json
-        const settingsPath = path.join(vscodeDir, 'settings.json');
-        if (fs.existsSync(settingsPath)) {
-            try {
-                const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-                settings['ue5.enginePath'] = newEnginePath;
-                fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 4));
-                this.outputChannel.appendLine('Updated engine path in settings.json');
-            } catch (error) {
-                try {
-                    // Regenerate all configs with new engine path
-                    await this.setupCppEnvironment(project);
-                    this.outputChannel.appendLine(`Updated all configurations with new engine path: ${newEnginePath}`);
-                } catch (error) {
-                    this.outputChannel.appendLine(`Error updating configurations with new engine path: ${error}`);
-                    throw error;
-                }
-            }
-        }
-    }
-
-    async checkRequiredExtensions(): Promise<{ missing: string[], recommendations: string[] }> {
-        const requiredExtensions = [
-            'ms-vscode.cpptools'
-        ];
-
-        const recommendedExtensions = [
-            'ms-vscode.cpptools-extension-pack',
-            'ms-vscode.cmake-tools',
-            'twxs.cmake'
-        ];
-
-        const missing: string[] = [];
-        const recommendations: string[] = [];
-
-        // Check required extensions
-        for (const extId of requiredExtensions) {
-            const extension = vscode.extensions.getExtension(extId);
-            if (!extension) {
-                missing.push(extId);
-            }
-        }
-
-        // Check recommended extensions
-        for (const extId of recommendedExtensions) {
-            const extension = vscode.extensions.getExtension(extId);
-            if (!extension) {
-                recommendations.push(extId);
-            }
-        }
-
-        return { missing, recommendations };
-    }
-
-    async promptInstallExtensions(): Promise<void> {
-        const { missing, recommendations } = await this.checkRequiredExtensions();
-
-        if (missing.length > 0) {
-            const action = await vscode.window.showErrorMessage(
-                `Required extensions missing: ${missing.join(', ')}. Install now?`,
-                'Install Required',
-                'Later'
-            );
-
-            if (action === 'Install Required') {
-                for (const extId of missing) {
-                    try {
-                        await vscode.commands.executeCommand('workbench.extensions.installExtension', extId);
-                        this.outputChannel.appendLine(`Installing extension: ${extId}`);
-                    } catch (error) {
-                        this.outputChannel.appendLine(`Failed to install ${extId}: ${error}`);
+                    const versions = fs.readdirSync(sdkPath)
+                        .filter(v => v.match(/^10\.\d+\.\d+\.\d+$/))
+                        .sort()
+                        .reverse();
+                    if (versions.length > 0) {
+                        return versions[0];
                     }
+                } catch (error) {
+                    continue;
                 }
             }
         }
 
-        if (recommendations.length > 0) {
-            const action = await vscode.window.showInformationMessage(
-                `Recommended extensions for better UE5 development: ${recommendations.slice(0, 2).join(', ')}${recommendations.length > 2 ? '...' : ''}. Install?`,
-                'Install Recommended',
-                'Later'
-            );
-
-            if (action === 'Install Recommended') {
-                for (const extId of recommendations) {
-                    try {
-                        await vscode.commands.executeCommand('workbench.extensions.installExtension', extId);
-                        this.outputChannel.appendLine(`Installing recommended extension: ${extId}`);
-                    } catch (error) {
-                        this.outputChannel.appendLine(`Failed to install ${extId}: ${error}`);
-                    }
-                }
-            }
-        }
+        return "10.0.22621.0"; // Fallback to Windows 11 SDK version
     }
 }
