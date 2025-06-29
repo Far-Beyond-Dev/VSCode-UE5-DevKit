@@ -2,7 +2,7 @@
     "name": "ue5-dev-tools",
     "displayName": "UE5 Development Tools",
     "description": "Comprehensive development tools for Unreal Engine 5 projects",
-    "version": "2.0.0",
+    "version": "3.0.0",
     "publisher": "Far-Beyond-LLC",
     "license": "MIT",
     "repository": {
@@ -12,7 +12,9 @@
     "engines": {
         "vscode": "^1.74.0"
     },
-    "categories": ["Other"],
+    "categories": [
+        "Other"
+    ],
     "activationEvents": [
         "workspaceContains:**/*.uproject"
     ],
@@ -84,7 +86,7 @@
                 "icon": "$(tools)"
             },
             {
-                "command": "ue5.openEngineInline", 
+                "command": "ue5.openEngineInline",
                 "title": "Open in Engine",
                 "icon": "$(play)"
             },
@@ -132,13 +134,13 @@
                     "group": "ue5@1"
                 },
                 {
-                    "command": "ue5.openEngine", 
+                    "command": "ue5.openEngine",
                     "when": "view == ue5SolutionExplorer && viewItem == uprojectFile",
                     "group": "ue5@2"
                 },
                 {
                     "command": "ue5.packageProject",
-                    "when": "view == ue5SolutionExplorer && viewItem == uprojectFile", 
+                    "when": "view == ue5SolutionExplorer && viewItem == uprojectFile",
                     "group": "ue5@3"
                 },
                 {
@@ -153,7 +155,7 @@
                     "when": "view == ue5SolutionExplorer && viewItem == uprojectFile"
                 },
                 {
-                    "command": "ue5.openEngineInline", 
+                    "command": "ue5.openEngineInline",
                     "when": "view == ue5SolutionExplorer && viewItem == uprojectFile"
                 },
                 {
@@ -216,7 +218,12 @@
                 "ue5.defaultBuildConfiguration": {
                     "type": "string",
                     "default": "Development",
-                    "enum": ["Debug", "DebugGame", "Development", "Shipping"],
+                    "enum": [
+                        "Debug",
+                        "DebugGame",
+                        "Development",
+                        "Shipping"
+                    ],
                     "description": "Default build configuration"
                 },
                 "ue5.showBuildOutput": {
@@ -233,8 +240,11 @@
         "watch": "tsc -watch -p ./"
     },
     "devDependencies": {
-        "@types/vscode": "^1.74.0",
         "@types/node": "16.x",
+        "@types/vscode": "^1.74.0",
         "typescript": "^4.9.4"
+    },
+    "dependencies": {
+        "execa": "^9.6.0"
     }
 }

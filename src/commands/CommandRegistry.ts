@@ -5,9 +5,9 @@ import { BuildManager } from '../managers/BuildManager';
 import { ConfigurationManager } from '../managers/ConfigurationManager';
 import { SolutionExplorer } from '../ui/SolutionExplorer';
 import { SolutionItem, UE5Project } from '../types';
-import { spawn } from 'child_process';
+import { execa } from 'execa';
 import { PathUtils } from '../utils/PathUtils';
-import * as path from 'path';
+const path = require('path');
 
 interface CommandDependencies {
     projectManager: ProjectManager;
@@ -31,7 +31,7 @@ export class CommandRegistry {
             vscode.commands.registerCommand('ue5.openFile', (filePath: string) => this.openFile(filePath)),
             vscode.commands.registerCommand('ue5.buildPlugin', (item?: SolutionItem) => this.buildPlugin(deps, item)),
             vscode.commands.registerCommand('ue5.refreshCppConfig', () => this.refreshCppConfig(deps)),
-            
+
             // Inline action commands
             vscode.commands.registerCommand('ue5.buildProjectInline', () => this.buildProject(deps, 'Development')),
             vscode.commands.registerCommand('ue5.openEngineInline', () => this.openEngine(deps)),
@@ -40,6 +40,55 @@ export class CommandRegistry {
         ];
 
         commands.forEach(command => context.subscriptions.push(command));
+    }
+
+    // BULLETPROOF COMMAND EXECUTOR using EXECA - handles ALL path/space/platform issues
+    private async executeCommand(
+        command: string,
+        args: string[],
+        options: {
+            cwd?: string;
+            env?: NodeJS.ProcessEnv;
+            timeout?: number;
+            detached?: boolean;
+        } = {}
+    ): Promise<{ stdout: string; stderr: string; code: number }> {
+        try {
+            const subprocess = execa(command, args, {
+                cwd: options.cwd,
+                env: options.env || process.env,
+                timeout: options.timeout,
+                stdio: options.detached ? 'ignore' : 'pipe',
+                // Execa automatically handles:
+                // - Windows batch files (.bat, .cmd)
+                // - Paths with spaces and special characters
+                // - OneDrive virtual paths
+                // - Cross-platform differences
+                // - Proper escaping and quoting
+                // - Unicode characters in paths
+                // - Network paths
+                windowsHide: true,
+                detached: options.detached || false
+            });
+
+            if (options.detached) {
+                subprocess.unref();
+                return { stdout: '', stderr: '', code: 0 };
+            }
+
+            const result = await subprocess;
+            return { 
+                stdout: result.stdout ?? '', 
+                stderr: result.stderr ?? '', 
+                code: result.exitCode || 0 
+            };
+        } catch (error: any) {
+            return { 
+                stdout: error.stdout || '', 
+                stderr: error.stderr || error.message, 
+                code: error.exitCode || 1 
+            };
+        }
     }
 
     private async openEngine(deps: CommandDependencies) {
@@ -57,11 +106,16 @@ export class CommandRegistry {
 
         try {
             const editorPath = PathUtils.getEditorPath(enginePath);
-            const child = spawn(editorPath, [project.uprojectPath], { detached: true });
-            child.unref();
+            
+            // Execa handles all path complexities automatically
+            await this.executeCommand(editorPath, [project.uprojectPath], {
+                cwd: project.path,
+                detached: true
+            });
+
             vscode.window.showInformationMessage('Unreal Engine opened successfully');
-        } catch (error) {
-            vscode.window.showErrorMessage('Failed to open Unreal Engine');
+        } catch (error: any) {
+            vscode.window.showErrorMessage(`Failed to open Unreal Engine: ${error.message}`);
         }
     }
 
@@ -99,7 +153,7 @@ export class CommandRegistry {
             if (error.stderr) {
                 console.log(`Build errors: ${error.stderr}`);
             }
-            
+
             // Show more detailed error message
             const errorDetails = error.stderr || error.stdout || error.message || 'Unknown error';
             vscode.window.showErrorMessage(`Build failed: ${errorDetails.substring(0, 200)}...`);
@@ -122,8 +176,53 @@ export class CommandRegistry {
     }
 
     private async cookContent(deps: CommandDependencies) {
-        // Implementation for cooking content
-        vscode.window.showInformationMessage('Content cooking not yet implemented');
+        const project = await deps.projectManager.detectProject();
+        if (!project) {
+            vscode.window.showErrorMessage('No UE5 project detected');
+            return;
+        }
+
+        const enginePath = PathUtils.getEnginePath();
+        if (!enginePath) {
+            vscode.window.showErrorMessage('Engine path not configured. Please set ue5.enginePath in settings.');
+            return;
+        }
+
+        try {
+            const runUATPath = PathUtils.getRunUATPath(enginePath);
+            const args = [
+                'BuildCookRun',
+                `-project=${project.uprojectPath}`,
+                '-cook',
+                '-allmaps',
+                '-unversioned',
+                '-pak',
+                '-compressed',
+                '-stage',
+                '-noP4'
+            ];
+
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'Cooking Content',
+                cancellable: true
+            }, async (progress, token) => {
+                progress.report({ increment: 0, message: 'Starting content cooking...' });
+
+                const result = await this.executeCommand(runUATPath, args, {
+                    cwd: project.path,
+                    timeout: 30 * 60 * 1000 // 30 minutes timeout
+                });
+
+                if (result.code === 0) {
+                    vscode.window.showInformationMessage('Content cooking completed successfully');
+                } else {
+                    throw new Error(`Cooking failed with exit code ${result.code}: ${result.stderr}`);
+                }
+            });
+        } catch (error: any) {
+            vscode.window.showErrorMessage(`Content cooking failed: ${error.message}`);
+        }
     }
 
     private async packageProject(deps: CommandDependencies) {
@@ -149,11 +248,11 @@ export class CommandRegistry {
                 { label: 'Android', value: 'Android' },
                 { label: 'iOS', value: 'IOS' }
             ];
-            
+
             const selectedPlatformItem = await vscode.window.showQuickPick(platforms, {
                 placeHolder: 'Select target platform'
             });
-            
+
             if (!selectedPlatformItem) return;
             const selectedPlatform = selectedPlatformItem.value;
 
@@ -163,11 +262,11 @@ export class CommandRegistry {
                 { label: 'Shipping - Full optimizations, no debug info', value: 'Shipping' },
                 { label: 'Test - Optimized with some debugging features', value: 'Test' }
             ];
-            
+
             const selectedConfigItem = await vscode.window.showQuickPick(configurations, {
                 placeHolder: 'Select build configuration'
             });
-            
+
             if (!selectedConfigItem) return;
             const selectedConfig = selectedConfigItem.value;
 
@@ -188,33 +287,58 @@ export class CommandRegistry {
 
             // Start packaging with progress
             await this.executePackaging(project, enginePath, selectedPlatform, selectedConfig, outputPath);
-            
+
         } catch (error: any) {
             vscode.window.showErrorMessage(`Packaging failed: ${error.message}`);
         }
     }
 
     private async executePackaging(
-        project: UE5Project, 
-        enginePath: string, 
-        platform: string, 
-        configuration: string, 
+        project: UE5Project,
+        enginePath: string,
+        platform: string,
+        configuration: string,
         outputPath: string
     ): Promise<void> {
         const runUATPath = PathUtils.getRunUATPath(enginePath);
-        
-        // Ensure output directory exists
         const fs = require('fs');
-        const path = require('path');
+
+        // Validate prerequisites
+        if (!fs.existsSync(runUATPath)) {
+            throw new Error(`RunUAT.bat not found at: ${runUATPath}`);
+        }
+
+        // Ensure output directory exists
         if (!fs.existsSync(outputPath)) {
             fs.mkdirSync(outputPath, { recursive: true });
         }
 
-        // Build the UAT command for packaging
-        const uatCommand = [
-            `"${runUATPath}"`,
+        // Check if project needs to be built first
+        const projectBinariesPath = path.join(project.path, 'Binaries');
+        if (!fs.existsSync(projectBinariesPath)) {
+            const shouldBuild = await vscode.window.showWarningMessage(
+                'Project binaries not found. The project needs to be built before packaging.',
+                'Build and Package',
+                'Package Anyway',
+                'Cancel'
+            );
+
+            if (shouldBuild === 'Cancel') {
+                return;
+            } else if (shouldBuild === 'Build and Package') {
+                vscode.window.showInformationMessage('Building project first...');
+                try {
+                    await vscode.commands.executeCommand('ue5.buildDevelopment');
+                } catch (buildError) {
+                    throw new Error('Failed to build project before packaging');
+                }
+            }
+        }
+
+        // Build the UAT command arguments
+        const uatArgs = [
             'BuildCookRun',
-            `-project="${project.uprojectPath}"`,
+            `-project=${project.uprojectPath}`,
             '-noP4',
             `-platform=${platform}`,
             `-clientconfig=${configuration}`,
@@ -225,11 +349,13 @@ export class CommandRegistry {
             '-stage',
             '-pak',
             '-archive',
-            `-archivedirectory="${outputPath}"`,
-            '-utf8output'
-        ].join(' ');
+            `-archivedirectory=${outputPath}`,
+            '-utf8output',
+            '-unattended',
+            '-noxge'
+        ];
 
-        console.log(`Packaging command: ${uatCommand}`);
+        console.log(`Packaging command: "${runUATPath}" ${uatArgs.join(' ')}`);
 
         // Show progress with cancellation support
         await vscode.window.withProgress({
@@ -240,116 +366,179 @@ export class CommandRegistry {
             return new Promise<void>((resolve, reject) => {
                 progress.report({ increment: 0, message: `Starting packaging for ${platform} ${configuration}...` });
 
-                const { spawn } = require('child_process');
-                const child = spawn('cmd', ['/c', uatCommand], {
+                // Use execa for bulletproof command execution
+                const subprocess = execa(runUATPath, uatArgs, {
                     cwd: project.path,
-                    stdio: ['pipe', 'pipe', 'pipe']
+                    env: {
+                        ...process.env,
+                        PATH: process.env.PATH + (process.platform === 'win32' 
+                            ? `;${path.join(enginePath, 'Engine', 'Binaries', 'Win64')}`
+                            : `:${path.join(enginePath, 'Engine', 'Binaries', 'ThirdParty')}`
+                        )
+                    },
+                    stdio: 'pipe',
+                    windowsHide: true
                 });
 
                 let totalOutput = '';
+                let totalError = '';
                 let currentStep = '';
                 let progressValue = 0;
+                let lastProgressUpdate = 0;
 
                 // Handle cancellation
                 token.onCancellationRequested(() => {
-                    child.kill('SIGTERM');
+                    subprocess.kill('SIGTERM');
                     reject(new Error('Packaging cancelled by user'));
                 });
 
                 // Parse stdout for progress
-                child.stdout.on('data', (data: Buffer) => {
-                    const output = data.toString();
-                    totalOutput += output;
-                    console.log(output);
+                if (subprocess.stdout) {
+                    subprocess.stdout.on('data', (data: Buffer) => {
+                        const output = data.toString();
+                        totalOutput += output;
+                        console.log(output);
 
-                    // Parse progress from UAT output
-                    const lines = output.split('\n');
-                    for (const line of lines) {
-                        const trimmedLine = line.trim();
-                        
-                        // Detect different packaging phases
-                        if (trimmedLine.includes('Parsing command line')) {
-                            currentStep = 'Initializing...';
-                            progressValue = 5;
-                        } else if (trimmedLine.includes('Building') && trimmedLine.includes('Editor')) {
-                            currentStep = 'Building project...';
-                            progressValue = 15;
-                        } else if (trimmedLine.includes('Cooking')) {
-                            currentStep = 'Cooking content...';
-                            progressValue = 35;
-                        } else if (trimmedLine.includes('Staging')) {
-                            currentStep = 'Staging files...';
-                            progressValue = 70;
-                        } else if (trimmedLine.includes('Creating pak file')) {
-                            currentStep = 'Creating package...';
-                            progressValue = 85;
-                        } else if (trimmedLine.includes('Moving staged files')) {
-                            currentStep = 'Finalizing...';
-                            progressValue = 95;
-                        }
+                        // Parse progress from UAT output
+                        const lines = output.split('\n');
+                        for (const line of lines) {
+                            const trimmedLine = line.trim();
 
-                        // Update progress if we detected a new step
-                        if (currentStep) {
-                            progress.report({ 
-                                increment: progressValue - (progress as any).lastValue || 0,
-                                message: currentStep 
-                            });
-                            (progress as any).lastValue = progressValue;
-                            currentStep = '';
-                        }
+                            // Detect different packaging phases
+                            if (trimmedLine.includes('Parsing command line') || trimmedLine.includes('Setting up command environment')) {
+                                currentStep = 'Initializing...';
+                                progressValue = 5;
+                            } else if (trimmedLine.includes('Compiling') || (trimmedLine.includes('Building') && trimmedLine.includes('Editor'))) {
+                                currentStep = 'Building project...';
+                                progressValue = 15;
+                            } else if (trimmedLine.includes('Cook by the book') || trimmedLine.includes('Cooking') || trimmedLine.includes('LogCook:')) {
+                                currentStep = 'Cooking content...';
+                                progressValue = 35;
+                            } else if (trimmedLine.includes('Staging files') || trimmedLine.includes('***** STAGE COMMAND STARTED')) {
+                                currentStep = 'Staging files...';
+                                progressValue = 70;
+                            } else if (trimmedLine.includes('Creating pak file') || trimmedLine.includes('UnrealPak')) {
+                                currentStep = 'Creating package...';
+                                progressValue = 85;
+                            } else if (trimmedLine.includes('Moving staged files') || trimmedLine.includes('***** ARCHIVE COMMAND STARTED')) {
+                                currentStep = 'Finalizing...';
+                                progressValue = 95;
+                            } else if (trimmedLine.includes('BUILD SUCCESSFUL') || trimmedLine.includes('AutomationTool exiting with ExitCode=0')) {
+                                currentStep = 'Completed!';
+                                progressValue = 100;
+                            }
 
-                        // Look for specific progress indicators
-                        const progressMatch = trimmedLine.match(/(\d+)%/);
-                        if (progressMatch) {
-                            const percent = parseInt(progressMatch[1]);
-                            progress.report({ 
-                                increment: percent - progressValue,
-                                message: `Processing... ${percent}%`
-                            });
-                            progressValue = percent;
+                            // Update progress if we detected a new step
+                            if (currentStep && progressValue > lastProgressUpdate) {
+                                progress.report({
+                                    increment: progressValue - lastProgressUpdate,
+                                    message: currentStep
+                                });
+                                lastProgressUpdate = progressValue;
+                                currentStep = '';
+                            }
+
+                            // Look for specific progress indicators
+                            const progressMatch = trimmedLine.match(/(\d+)%/);
+                            if (progressMatch) {
+                                const percent = parseInt(progressMatch[1]);
+                                if (percent > lastProgressUpdate) {
+                                    progress.report({
+                                        increment: percent - lastProgressUpdate,
+                                        message: `Processing... ${percent}%`
+                                    });
+                                    lastProgressUpdate = percent;
+                                }
+                            }
                         }
-                    }
-                });
+                    });
+                }
 
                 // Handle stderr
-                child.stderr.on('data', (data: Buffer) => {
-                    const output = data.toString();
-                    totalOutput += output;
-                    console.error(output);
-                });
+                if (subprocess.stderr) {
+                    subprocess.stderr.on('data', (data: Buffer) => {
+                        const output = data.toString();
+                        totalError += output;
+                        console.error(output);
 
-                // Handle completion
-                child.on('close', (code: number) => {
-                    if (code === 0) {
-                        progress.report({ increment: 100, message: 'Packaging completed successfully!' });
-                        
-                        vscode.window.showInformationMessage(
-                            `Project packaged successfully for ${platform} ${configuration}`,
-                            'Open Output Folder'
-                        ).then(selection => {
-                            if (selection === 'Open Output Folder') {
-                                vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(outputPath));
-                            }
-                        });
-                        
-                        resolve();
+                        // Check for common errors
+                        if (output.toLowerCase().includes('error') && !output.toLowerCase().includes('warning')) {
+                            progress.report({ message: `Error detected: ${output.substring(0, 50)}...` });
+                        }
+                    });
+                }
+
+                // Handle completion using execa's promise
+                subprocess.then((result) => {
+                    console.log(`UAT process completed successfully`);
+                    console.log('Full stdout:', totalOutput);
+                    
+                    progress.report({ increment: 100, message: 'Packaging completed successfully!' });
+
+                    vscode.window.showInformationMessage(
+                        `Project packaged successfully for ${platform} ${configuration}`,
+                        'Open Output Folder'
+                    ).then(selection => {
+                        if (selection === 'Open Output Folder') {
+                            vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(outputPath));
+                        }
+                    });
+
+                    resolve();
+                }).catch((error: any) => {
+                    console.log(`UAT process failed with error:`, error);
+                    console.log('Full stdout:', totalOutput);
+                    console.log('Full stderr:', totalError);
+
+                    // Enhanced error analysis
+                    const allOutput = totalOutput + '\n' + totalError + '\n' + (error.stderr || '') + '\n' + (error.stdout || '');
+                    let errorMessage = `Packaging failed with exit code ${error.exitCode || 'unknown'}`;
+
+                    // Look for specific error patterns
+                    if (allOutput.includes('Could not find') && allOutput.includes('.uproject')) {
+                        errorMessage = 'Project file not found or invalid path';
+                    } else if (allOutput.includes('Visual Studio') || allOutput.includes('MSVC')) {
+                        errorMessage = 'Visual Studio build tools not found. Install Visual Studio 2022 with C++ tools.';
+                    } else if (allOutput.includes('Windows SDK')) {
+                        errorMessage = 'Windows SDK not found. Install Windows 10/11 SDK.';
+                    } else if (allOutput.includes('UnrealBuildTool') && allOutput.includes('failed')) {
+                        errorMessage = 'Build failed. Try building the project in Development configuration first.';
+                    } else if (allOutput.includes('Cook') && allOutput.includes('failed')) {
+                        errorMessage = 'Content cooking failed. Check for corrupted assets or invalid references.';
+                    } else if (allOutput.includes('AutomationTool') && allOutput.includes('exception')) {
+                        errorMessage = 'UAT automation tool encountered an internal error';
+                    } else if (error.message && error.message.includes('ENOENT')) {
+                        errorMessage = 'RunUAT.bat not found. Check your engine path configuration.';
                     } else {
-                        // Try to extract meaningful error from output
-                        const errorLines = totalOutput.split('\n').filter(line => 
-                            line.toLowerCase().includes('error') || 
-                            line.toLowerCase().includes('failed')
+                        // Try to extract the last few error lines
+                        const errorLines = allOutput.split('\n').filter(line =>
+                            line.toLowerCase().includes('error') &&
+                            !line.toLowerCase().includes('warning') &&
+                            line.trim().length > 0
                         );
-                        
-                        const errorMessage = errorLines.length > 0 
-                            ? errorLines.slice(-3).join('\n') 
-                            : `Packaging failed with exit code ${code}`;
-                            
-                        reject(new Error(errorMessage));
-                    }
-                });
 
-                child.on('error', (error: Error) => {
-                    reject(new Error(`Failed to start packaging process: ${error.message}`));
+                        if (errorLines.length > 0) {
+                            errorMessage = errorLines.slice(-2).join('\n');
+                        }
+                    }
+
+                    // Show detailed error with option to view full log
+                    vscode.window.showErrorMessage(
+                        errorMessage,
+                        'View Full Log'
+                    ).then(selection => {
+                        if (selection === 'View Full Log') {
+                            // Create a new untitled document with the full log
+                            vscode.workspace.openTextDocument({
+                                content: `UAT Packaging Log (Execa)\n${'='.repeat(50)}\n\nCommand: "${runUATPath}" ${uatArgs.join(' ')}\n\nExit Code: ${error.exitCode || 'unknown'}\n\nStdout:\n${totalOutput}\n\nStderr:\n${totalError}\n\nError Object:\n${JSON.stringify(error, null, 2)}`,
+                                language: 'log'
+                            }).then(doc => {
+                                vscode.window.showTextDocument(doc);
+                            });
+                        }
+                    });
+
+                    reject(new Error(errorMessage));
                 });
             });
         });
@@ -431,10 +620,9 @@ export class CommandRegistry {
 
     private async deleteBuildFolders(projectPath: string) {
         const fs = require('fs').promises;
-        const path = require('path');
-        
+
         const foldersToClean = ['Binaries', 'Intermediate', 'Saved'];
-        
+
         for (const folder of foldersToClean) {
             const folderPath = path.join(projectPath, folder);
             try {
