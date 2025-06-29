@@ -13,6 +13,7 @@
     ],
     "main": "./out/extension.js",
     "files": [
+        "resources",
         "package.json",
         "README.md"
     ],
