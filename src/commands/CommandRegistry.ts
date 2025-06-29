@@ -5,7 +5,7 @@ import { BuildManager } from '../managers/BuildManager';
 import { ConfigurationManager } from '../managers/ConfigurationManager';
 import { SolutionExplorer } from '../ui/SolutionExplorer';
 import { SolutionItem, UE5Project } from '../types';
-import { execa } from 'execa';
+import execa = require("execa")
 import { PathUtils } from '../utils/PathUtils';
 const path = require('path');
 
