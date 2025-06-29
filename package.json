@@ -1,234 +1,149 @@
 {
-  "name": "ue5-dev-tools",
-  "displayName": "UE5.6 Development Tools",
-  "description": "Comprehensive Unreal Engine 5.6 development tools for VS Code",
-  "version": "1.0.0",
-  "publisher": "ue5-dev",
-  "engines": {
-    "vscode": "^1.74.0"
-  },
-  "categories": [
-    "Other",
-    "Debuggers"
-  ],
-  "keywords": [
-    "unreal",
-    "ue5",
-    "gamedev",
-    "cpp"
-  ],
-  "activationEvents": [
-    "workspaceContains:**/*.uproject"
-  ],
-  "main": "./out/extension.js",
-  "files": [
-    "out/**/*",
-    "resources/**/*",
-    "package.json",
-    "README.md"
-  ],
-  "contributes": {
-    "commands": [
-      {
-        "command": "ue5.openEngine",
-        "title": "Open Unreal Engine",
-        "category": "UE5",
-        "icon": "$(rocket)"
-      },
-      {
-        "command": "ue5.generateProjectFiles",
-        "title": "Generate Project Files",
-        "category": "UE5",
-        "icon": "$(file-code)"
-      },
-      {
-        "command": "ue5.buildDevelopment",
-        "title": "Build Development",
-        "category": "UE5",
-        "icon": "$(tools)"
-      },
-      {
-        "command": "ue5.buildShipping",
-        "title": "Build Shipping",
-        "category": "UE5",
-        "icon": "$(package)"
-      },
-      {
-        "command": "ue5.buildDebug",
-        "title": "Build DebugGame",
-        "category": "UE5",
-        "icon": "$(bug)"
-      },
-      {
-        "command": "ue5.cleanBuild",
-        "title": "Clean Build",
-        "category": "UE5",
-        "icon": "$(trash)"
-      },
-      {
-        "command": "ue5.cookContent",
-        "title": "Cook Content",
-        "category": "UE5",
-        "icon": "$(flame)"
-      },
-      {
-        "command": "ue5.packageProject",
-        "title": "Package Project",
-        "category": "UE5",
-        "icon": "$(archive)"
-      },
-      {
-        "command": "ue5.refreshSolutionExplorer",
-        "title": "Refresh",
-        "category": "UE5",
-        "icon": "$(refresh)"
-      },
-      {
-        "command": "ue5.openFile",
-        "title": "Open File",
-        "category": "UE5"
-      },
-      {
-        "command": "ue5.buildPlugin",
-        "title": "Build Plugin",
-        "category": "UE5",
-        "icon": "$(tools)"
-      },
-      {
-        "command": "ue5.refreshCppConfig",
-        "title": "Refresh C++ Configuration",
-        "category": "UE5",
-        "icon": "$(gear)"
-      }
+    "name": "ue5-dev-tools",
+    "displayName": "UE5 Development Tools",
+    "description": "Comprehensive development tools for Unreal Engine 5 projects",
+    "version": "1.0.0",
+    "engines": {
+        "vscode": "^1.74.0"
+    },
+    "categories": ["Other"],
+    "activationEvents": [
+        "workspaceContains:**/*.uproject"
     ],
-    "views": {
-      "ue5-explorer": [
-        {
-          "id": "ue5SolutionExplorer",
-          "name": "UE5 Solution Explorer",
-          "when": "ue5.projectDetected"
+    "main": "./out/extension.js",
+    "files": [
+        "out",
+        "resources",
+        "package.json",
+        "README.md",
+        "CHANGELOG.md"
+    ],
+    "contributes": {
+        "commands": [
+            {
+                "command": "ue5.openEngine",
+                "title": "Open Engine",
+                "category": "UE5"
+            },
+            {
+                "command": "ue5.generateProjectFiles",
+                "title": "Generate Project Files",
+                "category": "UE5"
+            },
+            {
+                "command": "ue5.buildDevelopment",
+                "title": "Build Development",
+                "category": "UE5"
+            },
+            {
+                "command": "ue5.buildShipping",
+                "title": "Build Shipping",
+                "category": "UE5"
+            },
+            {
+                "command": "ue5.buildDebug",
+                "title": "Build Debug",
+                "category": "UE5"
+            },
+            {
+                "command": "ue5.cleanBuild",
+                "title": "Clean Build",
+                "category": "UE5"
+            },
+            {
+                "command": "ue5.refreshSolutionExplorer",
+                "title": "Refresh",
+                "icon": "$(refresh)"
+            },
+            {
+                "command": "ue5.refreshCppConfig",
+                "title": "Refresh C++ Configuration",
+                "category": "UE5"
+            }
+        ],
+        "views": {
+            "explorer": [
+                {
+                    "id": "ue5SolutionExplorer",
+                    "name": "UE5 Solution Explorer",
+                    "when": "ue5.projectDetected"
+                }
+            ]
+        },
+        "menus": {
+            "view/title": [
+                {
+                    "command": "ue5.refreshSolutionExplorer",
+                    "when": "view == ue5SolutionExplorer",
+                    "group": "navigation"
+                }
+            ],
+            "commandPalette": [
+                {
+                    "command": "ue5.openEngine",
+                    "when": "ue5.projectDetected"
+                },
+                {
+                    "command": "ue5.generateProjectFiles",
+                    "when": "ue5.projectDetected"
+                },
+                {
+                    "command": "ue5.buildDevelopment",
+                    "when": "ue5.projectDetected"
+                },
+                {
+                    "command": "ue5.buildShipping",
+                    "when": "ue5.projectDetected"
+                },
+                {
+                    "command": "ue5.buildDebug",
+                    "when": "ue5.projectDetected"
+                },
+                {
+                    "command": "ue5.cleanBuild",
+                    "when": "ue5.projectDetected"
+                },
+                {
+                    "command": "ue5.refreshCppConfig",
+                    "when": "ue5.projectDetected"
+                }
+            ]
+        },
+        "configuration": {
+            "title": "UE5 Development Tools",
+            "properties": {
+                "ue5.enginePath": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Path to Unreal Engine installation"
+                },
+                "ue5.defaultPlatform": {
+                    "type": "string",
+                    "default": "Win64",
+                    "description": "Default build platform"
+                },
+                "ue5.defaultBuildConfiguration": {
+                    "type": "string",
+                    "default": "Development",
+                    "enum": ["Debug", "DebugGame", "Development", "Shipping"],
+                    "description": "Default build configuration"
+                },
+                "ue5.showBuildOutput": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Show build output in output panel"
+                }
+            }
         }
-      ]
     },
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "ue5-explorer",
-          "title": "UE5 Tools",
-          "icon": "$(game)"
-        }
-      ]
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./"
     },
-    "menus": {
-      "view/title": [
-        {
-          "command": "ue5.refreshSolutionExplorer",
-          "when": "view == ue5SolutionExplorer",
-          "group": "navigation"
-        },
-        {
-          "command": "ue5.refreshCppConfig",
-          "when": "view == ue5SolutionExplorer",
-          "group": "navigation"
-        }
-      ],
-      "view/item/context": [
-        {
-          "command": "ue5.openFile",
-          "when": "view == ue5SolutionExplorer && viewItem == file"
-        },
-        {
-          "command": "ue5.buildPlugin",
-          "when": "view == ue5SolutionExplorer && viewItem == buildablePlugin",
-          "group": "inline"
-        }
-      ],
-      "commandPalette": [
-        {
-          "command": "ue5.openEngine",
-          "when": "ue5.projectDetected"
-        },
-        {
-          "command": "ue5.generateProjectFiles",
-          "when": "ue5.projectDetected"
-        },
-        {
-          "command": "ue5.buildDevelopment",
-          "when": "ue5.projectDetected"
-        },
-        {
-          "command": "ue5.buildShipping",
-          "when": "ue5.projectDetected"
-        },
-        {
-          "command": "ue5.buildDebug",
-          "when": "ue5.projectDetected"
-        },
-        {
-          "command": "ue5.cleanBuild",
-          "when": "ue5.projectDetected"
-        },
-        {
-          "command": "ue5.cookContent",
-          "when": "ue5.projectDetected"
-        },
-        {
-          "command": "ue5.packageProject",
-          "when": "ue5.projectDetected"
-        },
-        {
-          "command": "ue5.refreshCppConfig",
-          "when": "ue5.projectDetected"
-        }
-      ]
-    },
-    "configuration": {
-      "title": "UE5 Development Tools",
-      "properties": {
-        "ue5.enginePath": {
-          "type": "string",
-          "default": "",
-          "description": "Path to Unreal Engine 5.6 installation"
-        },
-        "ue5.defaultBuildConfiguration": {
-          "type": "string",
-          "enum": ["Development", "DebugGame", "Shipping", "Test"],
-          "default": "Development",
-          "description": "Default build configuration"
-        },
-        "ue5.defaultPlatform": {
-          "type": "string",
-          "enum": ["Win64", "Mac", "Linux"],
-          "default": "Win64",
-          "description": "Default target platform"
-        },
-        "ue5.showBuildOutput": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show build output in terminal"
-        }
-      }
+    "devDependencies": {
+        "@types/vscode": "^1.74.0",
+        "@types/node": "16.x",
+        "typescript": "^4.9.4"
     }
-  },
-  "scripts": {
-    "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
-    "pretest": "npm run compile && npm run lint",
-    "lint": "eslint src --ext ts",
-    "test": "echo \"No tests specified\" && exit 0",
-    "package": "vsce package",
-    "install-local": "code --install-extension *.vsix",
-    "version:patch": "npm version patch",
-    "version:minor": "npm version minor", 
-    "version:major": "npm version major",
-    "release:patch": "npm run version:patch && git push && git push --tags",
-    "release:minor": "npm run version:minor && git push && git push --tags",
-    "release:major": "npm run version:major && git push && git push --tags"
-  },
-  "devDependencies": {
-    "@types/vscode": "^1.74.0",
-    "@types/node": "16.x",
-    "typescript": "^4.9.4"
-  }
 }
