@@ -18,8 +18,8 @@
     ],
     "main": "./out/extension.js",
     "files": [
-        "out",
-        "resources",
+        "out/**",
+        "resources/**",
         "package.json",
         "README.md"
     ],
