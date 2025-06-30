@@ -46,6 +46,12 @@
                 "icon": "$(clear-all)"
             },
             {
+                "command": "ue5.openFile",
+                "title": "Open File",
+                "category": "UE5",
+                "icon": "$(file-text)"
+            },
+            {
                 "command": "ue5.openEngineLogFile",
                 "title": "Open Engine Log File",
                 "category": "UE5",
