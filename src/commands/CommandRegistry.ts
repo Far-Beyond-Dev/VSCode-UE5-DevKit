@@ -1,9 +1,10 @@
-// src/commands/CommandRegistry.ts
+// src/commands/CommandRegistry.ts - Updated openEngine methods
 import * as vscode from 'vscode';
 import { ProjectManager } from '../managers/ProjectManager';
 import { BuildManager } from '../managers/BuildManager';
 import { ConfigurationManager } from '../managers/ConfigurationManager';
 import { SolutionExplorer } from '../ui/SolutionExplorer';
+import { UE5DebugConsole } from '../ui/UE5DebugConsole';
 import { SolutionItem, UE5Project } from '../types';
 import execa = require("execa")
 import { PathUtils } from '../utils/PathUtils';
@@ -17,29 +18,228 @@ interface CommandDependencies {
 }
 
 export class CommandRegistry {
-    registerCommands(context: vscode.ExtensionContext, deps: CommandDependencies) {
-        const commands = [
-            vscode.commands.registerCommand('ue5.openEngine', () => this.openEngine(deps)),
-            vscode.commands.registerCommand('ue5.generateProjectFiles', () => this.generateProjectFiles(deps)),
-            vscode.commands.registerCommand('ue5.buildDevelopment', () => this.buildProject(deps, 'Development')),
-            vscode.commands.registerCommand('ue5.buildShipping', () => this.buildProject(deps, 'Shipping')),
-            vscode.commands.registerCommand('ue5.buildDebug', () => this.buildProject(deps, 'DebugGame')),
-            vscode.commands.registerCommand('ue5.cleanBuild', () => this.cleanBuild(deps)),
-            vscode.commands.registerCommand('ue5.cookContent', () => this.cookContent(deps)),
-            vscode.commands.registerCommand('ue5.packageProject', () => this.packageProject(deps)),
-            vscode.commands.registerCommand('ue5.refreshSolutionExplorer', () => this.refreshSolutionExplorer(deps)),
-            vscode.commands.registerCommand('ue5.openFile', (filePath: string) => this.openFile(filePath)),
-            vscode.commands.registerCommand('ue5.buildPlugin', (item?: SolutionItem) => this.buildPlugin(deps, item)),
-            vscode.commands.registerCommand('ue5.refreshCppConfig', () => this.refreshCppConfig(deps)),
+    private debugConsole: UE5DebugConsole | null = null;
 
-            // Inline action commands
-            vscode.commands.registerCommand('ue5.buildProjectInline', () => this.buildProject(deps, 'Development')),
-            vscode.commands.registerCommand('ue5.openEngineInline', () => this.openEngine(deps)),
-            vscode.commands.registerCommand('ue5.packageProjectInline', () => this.packageProject(deps)),
-            vscode.commands.registerCommand('ue5.buildPluginInline', (item?: SolutionItem) => this.buildPlugin(deps, item))
+    registerCommands(context: vscode.ExtensionContext, deps: CommandDependencies) {
+        console.log('🔧 Registering UE5 commands...');
+        
+        // Initialize debug console
+        this.debugConsole = UE5DebugConsole.getInstance(context);
+        
+        const commands = [
+            // Main engine commands
+            vscode.commands.registerCommand('ue5.openEngine', async () => {
+                console.log('🚀 Executing ue5.openEngine command');
+                await this.openEngine(deps);
+            }),
+            vscode.commands.registerCommand('ue5.showEngineOutput', () => {
+                console.log('📋 Executing ue5.showEngineOutput command');
+                this.showEngineOutput();
+            }),
+            vscode.commands.registerCommand('ue5.clearEngineOutput', () => {
+                console.log('🧹 Executing ue5.clearEngineOutput command');
+                this.clearEngineOutput();
+            }),
+            vscode.commands.registerCommand('ue5.openEngineLogFile', async () => {
+                console.log('📄 Executing ue5.openEngineLogFile command');
+                await this.openEngineLogFile(deps);
+            }),
+            
+            // Project management commands
+            vscode.commands.registerCommand('ue5.generateProjectFiles', async () => {
+                console.log('📁 Executing ue5.generateProjectFiles command');
+                await this.generateProjectFiles(deps);
+            }),
+            
+            // Build commands
+            vscode.commands.registerCommand('ue5.buildDevelopment', async () => {
+                console.log('🔨 Executing ue5.buildDevelopment command');
+                await this.buildProject(deps, 'Development');
+            }),
+            vscode.commands.registerCommand('ue5.buildShipping', async () => {
+                console.log('🚢 Executing ue5.buildShipping command');
+                await this.buildProject(deps, 'Shipping');
+            }),
+            vscode.commands.registerCommand('ue5.buildDebug', async () => {
+                console.log('🐛 Executing ue5.buildDebug command');
+                await this.buildProject(deps, 'DebugGame');
+            }),
+            vscode.commands.registerCommand('ue5.cleanBuild', async () => {
+                console.log('🗑️ Executing ue5.cleanBuild command');
+                await this.cleanBuild(deps);
+            }),
+            
+            // Packaging and content commands
+            vscode.commands.registerCommand('ue5.cookContent', async () => {
+                console.log('🍳 Executing ue5.cookContent command');
+                await this.cookContent(deps);
+            }),
+            vscode.commands.registerCommand('ue5.packageProject', async () => {
+                console.log('📦 Executing ue5.packageProject command');
+                await this.packageProject(deps);
+            }),
+            
+            // UI and navigation commands
+            vscode.commands.registerCommand('ue5.refreshSolutionExplorer', () => {
+                console.log('🔄 Executing ue5.refreshSolutionExplorer command');
+                this.refreshSolutionExplorer(deps);
+            }),
+            vscode.commands.registerCommand('ue5.openFile', async (filePath: string) => {
+                console.log('📂 Executing ue5.openFile command:', filePath);
+                await this.openFile(filePath);
+            }),
+            vscode.commands.registerCommand('ue5.buildPlugin', async (item?: SolutionItem) => {
+                console.log('🔌 Executing ue5.buildPlugin command');
+                await this.buildPlugin(deps, item);
+            }),
+            vscode.commands.registerCommand('ue5.refreshCppConfig', async () => {
+                console.log('⚙️ Executing ue5.refreshCppConfig command');
+                await this.refreshCppConfig(deps);
+            }),
+
+            // Inline action commands (used by UI elements)
+            vscode.commands.registerCommand('ue5.buildProjectInline', async () => {
+                console.log('🔨 Executing ue5.buildProjectInline command');
+                await this.buildProject(deps, 'Development');
+            }),
+            vscode.commands.registerCommand('ue5.openEngineInline', async () => {
+                console.log('🚀 Executing ue5.openEngineInline command');
+                await this.openEngine(deps);
+            }),
+            vscode.commands.registerCommand('ue5.packageProjectInline', async () => {
+                console.log('📦 Executing ue5.packageProjectInline command');
+                await this.packageProject(deps);
+            }),
+            vscode.commands.registerCommand('ue5.buildPluginInline', async (item?: SolutionItem) => {
+                console.log('🔌 Executing ue5.buildPluginInline command');
+                await this.buildPlugin(deps, item);
+            })
         ];
 
-        commands.forEach(command => context.subscriptions.push(command));
+        // Register all commands and add to subscriptions
+        commands.forEach((command, index) => {
+            if (command) {
+                context.subscriptions.push(command);
+                console.log(`✅ Registered command ${index + 1}/${commands.length}`);
+            } else {
+                console.error(`❌ Failed to register command at index ${index}`);
+            }
+        });
+
+        console.log(`🎉 Successfully registered ${commands.length} UE5 commands`);
+        
+        // Verify command registration
+        this.verifyCommandRegistration();
+    }
+
+    private async verifyCommandRegistration() {
+        try {
+            const allCommands = await vscode.commands.getCommands(true);
+            const ue5Commands = allCommands.filter(cmd => cmd.startsWith('ue5.'));
+            console.log('🔍 Registered UE5 commands:', ue5Commands);
+            
+            if (ue5Commands.length === 0) {
+                console.error('❌ No UE5 commands found in registered commands list!');
+            } else {
+                console.log(`✅ Found ${ue5Commands.length} registered UE5 commands`);
+            }
+        } catch (error) {
+            console.error('❌ Error verifying command registration:', error);
+        }
+    }
+
+    private showEngineOutput() {
+        if (this.debugConsole) {
+            this.debugConsole.show();
+            vscode.window.showInformationMessage('UE5 Engine Console displayed');
+        }
+    }
+
+    private clearEngineOutput() {
+        if (this.debugConsole) {
+            this.debugConsole.clearOutput();
+            vscode.window.showInformationMessage('UE5 Engine Console cleared');
+        }
+    }
+
+    private async openEngineLogFile(deps: CommandDependencies) {
+        try {
+            const project = await deps.projectManager.detectProject();
+            if (!project) {
+                vscode.window.showErrorMessage('No UE5 project detected');
+                return;
+            }
+
+            // Common UE5 log file locations
+            const logPaths = [
+                path.join(project.path, 'Saved', 'Logs', `${project.name}.log`),
+                path.join(project.path, 'Saved', 'Logs', 'UnrealEditor.log'),
+                path.join(project.path, 'Saved', 'Logs', 'UnrealEditor-Win64-Development.log'),
+                path.join(process.env.LOCALAPPDATA || '', 'UnrealEngine', 'Common', 'Logs', 'UnrealEditor.log')
+            ];
+
+            const fs = require('fs');
+            let foundLogPath: string | null = null;
+
+            for (const logPath of logPaths) {
+                if (fs.existsSync(logPath)) {
+                    foundLogPath = logPath;
+                    break;
+                }
+            }
+
+            if (foundLogPath) {
+                try {
+                    const document = await vscode.workspace.openTextDocument(foundLogPath);
+                    await vscode.window.showTextDocument(document);
+                    
+                    // Scroll to the end of the document
+                    const editor = vscode.window.activeTextEditor;
+                    if (editor) {
+                        const lastLine = editor.document.lineCount - 1;
+                        const range = new vscode.Range(lastLine, 0, lastLine, 0);
+                        editor.revealRange(range);
+                    }
+                } catch (error) {
+                    vscode.window.showErrorMessage(`Failed to open log file: ${error}`);
+                }
+            } else {
+                // Show quick pick of available log files
+                const savedLogsDir = path.join(project.path, 'Saved', 'Logs');
+                if (fs.existsSync(savedLogsDir)) {
+                    try {
+                        const logFiles = fs.readdirSync(savedLogsDir)
+                            .filter((file: string) => file.endsWith('.log'))
+                            .map((file: string) => ({
+                                label: file,
+                                description: path.join(savedLogsDir, file),
+                                path: path.join(savedLogsDir, file)
+                            }));
+
+                        if (logFiles.length > 0) {
+                            const selected = await vscode.window.showQuickPick(
+                                logFiles.map((f: { path: any; }) => f.path),
+                                { placeHolder: 'Select a log file to open' }
+                            );
+
+                            if (selected) {
+                                const document = await vscode.workspace.openTextDocument(selected);
+                                await vscode.window.showTextDocument(document);
+                            }
+                        } else {
+                            vscode.window.showInformationMessage('No log files found. Try running the engine first.');
+                        }
+                    } catch (error) {
+                        vscode.window.showErrorMessage(`Error reading logs directory: ${error}`);
+                    }
+                } else {
+                    vscode.window.showInformationMessage('No logs directory found. Try running the engine first.');
+                }
+            }
+        } catch (error) {
+            console.error('Error in openEngineLogFile:', error);
+            vscode.window.showErrorMessage(`Failed to open engine log file: ${error}`);
+        }
     }
 
     // BULLETPROOF COMMAND EXECUTOR using EXECA - handles ALL path/space/platform issues
@@ -59,14 +259,6 @@ export class CommandRegistry {
                 env: options.env || process.env,
                 timeout: options.timeout,
                 stdio: options.detached ? 'ignore' : 'pipe',
-                // Execa automatically handles:
-                // - Windows batch files (.bat, .cmd)
-                // - Paths with spaces and special characters
-                // - OneDrive virtual paths
-                // - Cross-platform differences
-                // - Proper escaping and quoting
-                // - Unicode characters in paths
-                // - Network paths
                 windowsHide: true,
                 detached: options.detached || false
             });
@@ -91,31 +283,226 @@ export class CommandRegistry {
         }
     }
 
-    private async openEngine(deps: CommandDependencies) {
-        const project = await deps.projectManager.detectProject();
-        if (!project) {
-            vscode.window.showErrorMessage('No UE5 project detected');
-            return;
-        }
-
-        const enginePath = PathUtils.getEnginePath();
-        if (!enginePath) {
-            vscode.window.showErrorMessage('Engine path not configured. Please set ue5.enginePath in settings.');
-            return;
-        }
-
-        try {
-            const editorPath = PathUtils.getEditorPath(enginePath);
+    // Enhanced executeCommand method that streams output to debug console
+    private async executeCommandWithDebugConsole(
+        command: string,
+        args: string[],
+        options: {
+            cwd?: string;
+            env?: NodeJS.ProcessEnv;
+            timeout?: number;
+        } = {}
+    ): Promise<{ stdout: string; stderr: string; code: number; process: any }> {
+        return new Promise((resolve, reject) => {
+            console.log(`🚀 Executing: ${command} ${args.join(' ')}`);
             
-            // Execa handles all path complexities automatically
-            await this.executeCommand(editorPath, [project.uprojectPath], {
-                cwd: project.path,
-                detached: true
+            const subprocess = execa(command, args, {
+                cwd: options.cwd,
+                env: options.env || process.env,
+                timeout: options.timeout,
+                stdio: 'pipe',
+                windowsHide: true
             });
 
-            vscode.window.showInformationMessage('Unreal Engine opened successfully');
+            let stdout = '';
+            let stderr = '';
+
+            // Set engine as running in debug console
+            if (this.debugConsole) {
+                this.debugConsole.setEngineStatus(true, subprocess);
+                this.debugConsole.appendOutput(`🚀 Starting Unreal Engine...`, 'info');
+                this.debugConsole.appendOutput(`📋 Command: ${command}`, 'info');
+                this.debugConsole.appendOutput(`📋 Arguments: ${args.join(' ')}`, 'info');
+                this.debugConsole.appendOutput(`📂 Working Directory: ${options.cwd || process.cwd()}`, 'info');
+                this.debugConsole.appendOutput('━'.repeat(80), 'info');
+            }
+
+            if (subprocess.stdout) {
+                subprocess.stdout.on('data', (data: Buffer) => {
+                    const text = data.toString();
+                    stdout += text;
+                    
+                    // Stream to debug console
+                    if (this.debugConsole) {
+                        this.debugConsole.appendOutput(text, 'stdout');
+                    }
+                });
+            }
+
+            if (subprocess.stderr) {
+                subprocess.stderr.on('data', (data: Buffer) => {
+                    const text = data.toString();
+                    stderr += text;
+                    
+                    // Stream to debug console with appropriate type
+                    if (this.debugConsole) {
+                        const isError = text.toLowerCase().includes('error') && !text.toLowerCase().includes('warning');
+                        const isWarning = text.toLowerCase().includes('warning');
+                        const type = isError ? 'error' : isWarning ? 'warning' : 'stderr';
+                        this.debugConsole.appendOutput(text, type);
+                    }
+                });
+            }
+
+            subprocess.then((result) => {
+                console.log(`✅ Process completed with exit code: ${result.exitCode}`);
+                
+                if (this.debugConsole) {
+                    this.debugConsole.appendOutput('━'.repeat(80), 'info');
+                    this.debugConsole.appendOutput(`✅ Process completed with exit code: ${result.exitCode || 0}`, 'info');
+                    this.debugConsole.setEngineStatus(false);
+                }
+
+                resolve({
+                    stdout,
+                    stderr,
+                    code: result.exitCode || 0,
+                    process: subprocess
+                });
+            }).catch((error) => {
+                console.log(`❌ Process failed:`, error);
+                
+                if (this.debugConsole) {
+                    this.debugConsole.appendOutput('━'.repeat(80), 'error');
+                    this.debugConsole.appendOutput(`❌ Process failed with exit code: ${error.exitCode || 1}`, 'error');
+                    if (error.message) {
+                        this.debugConsole.appendOutput(`Error: ${error.message}`, 'error');
+                    }
+                    this.debugConsole.setEngineStatus(false);
+                }
+
+                resolve({
+                    stdout,
+                    stderr,
+                    code: error.exitCode || 1,
+                    process: subprocess
+                });
+            });
+        });
+    }
+
+    private async openEngine(deps: CommandDependencies) {
+        try {
+            console.log('🚀 Starting openEngine command execution...');
+            
+            const project = await deps.projectManager.detectProject();
+            if (!project) {
+                const errorMsg = 'No UE5 project detected in current workspace';
+                console.error(`❌ ${errorMsg}`);
+                vscode.window.showErrorMessage(errorMsg);
+                return;
+            }
+
+            console.log(`✅ UE5 project detected: ${project.name} at ${project.path}`);
+
+            const enginePath = PathUtils.getEnginePath();
+            if (!enginePath) {
+                const errorMsg = 'Engine path not configured. Please set ue5.enginePath in settings.';
+                console.error(`❌ ${errorMsg}`);
+                vscode.window.showErrorMessage(errorMsg);
+                return;
+            }
+
+            console.log(`✅ Engine path found: ${enginePath}`);
+
+            const editorPath = PathUtils.getEditorPath(enginePath);
+            console.log(`✅ Editor path: ${editorPath}`);
+
+            // Show debug console
+            if (this.debugConsole) {
+                this.debugConsole.show();
+            }
+
+            const config = vscode.workspace.getConfiguration('ue5');
+            
+            // Get configuration options
+            const loggingLevel = config.get<string>('engineLoggingLevel', 'Normal');
+            const customArgs = config.get<string[]>('engineLaunchArgs', ['-log', '-stdout']);
+
+            console.log(`⚙️ Configuration: level=${loggingLevel}`);
+
+            // Prepare launch arguments based on logging level
+            const launchArgs = [project.uprojectPath, ...customArgs];
+            
+            switch (loggingLevel) {
+                case 'Minimal':
+                    launchArgs.push('-silent');
+                    break;
+                case 'Verbose':
+                    launchArgs.push('-verbose');
+                    break;
+                case 'VeryVerbose':
+                    launchArgs.push('-verbose', '-veryverbose');
+                    break;
+                default: // Normal
+                    break;
+            }
+
+            console.log(`📋 Launch arguments: ${launchArgs.join(' ')}`);
+
+            // Launch engine with debug console streaming
+            const result = await this.executeCommandWithDebugConsole(
+                editorPath,
+                launchArgs,
+                {
+                    cwd: project.path,
+                    env: {
+                        ...process.env,
+                        // Ensure proper environment for UE5
+                        PATH: process.env.PATH + `;${PathUtils.getEngineBinariesPath(enginePath)}`
+                    }
+                }
+            );
+
+            console.log('✅ Engine launch process completed successfully');
+
+            // Show completion notification
+            if (result.code === 0) {
+                vscode.window.showInformationMessage(
+                    'Unreal Engine session completed successfully',
+                    'Show Console',
+                    'Open Log File'
+                ).then(selection => {
+                    switch (selection) {
+                        case 'Show Console':
+                            if (this.debugConsole) {
+                                this.debugConsole.show();
+                            }
+                            break;
+                        case 'Open Log File':
+                            vscode.commands.executeCommand('ue5.openEngineLogFile');
+                            break;
+                    }
+                });
+            } else {
+                vscode.window.showWarningMessage(
+                    `Engine process exited with code: ${result.code}`,
+                    'Show Console',
+                    'Open Log File'
+                ).then(selection => {
+                    switch (selection) {
+                        case 'Show Console':
+                            if (this.debugConsole) {
+                                this.debugConsole.show();
+                            }
+                            break;
+                        case 'Open Log File':
+                            vscode.commands.executeCommand('ue5.openEngineLogFile');
+                            break;
+                    }
+                });
+            }
+
         } catch (error: any) {
-            vscode.window.showErrorMessage(`Failed to open Unreal Engine: ${error.message}`);
+            const errorMsg = `Failed to open Unreal Engine: ${error.message}`;
+            console.error(`❌ ${errorMsg}`, error);
+            
+            if (this.debugConsole) {
+                this.debugConsole.appendOutput(`❌ Launch failed: ${error.message}`, 'error');
+                this.debugConsole.setEngineStatus(false);
+            }
+            
+            vscode.window.showErrorMessage(errorMsg);
         }
     }
 
@@ -300,42 +687,18 @@ export class CommandRegistry {
         configuration: string,
         outputPath: string
     ): Promise<void> {
+        // Basic implementation - you can expand this with the full packaging logic
         const runUATPath = PathUtils.getRunUATPath(enginePath);
         const fs = require('fs');
 
-        // Validate prerequisites
         if (!fs.existsSync(runUATPath)) {
             throw new Error(`RunUAT.bat not found at: ${runUATPath}`);
         }
 
-        // Ensure output directory exists
         if (!fs.existsSync(outputPath)) {
             fs.mkdirSync(outputPath, { recursive: true });
         }
 
-        // Check if project needs to be built first
-        const projectBinariesPath = path.join(project.path, 'Binaries');
-        if (!fs.existsSync(projectBinariesPath)) {
-            const shouldBuild = await vscode.window.showWarningMessage(
-                'Project binaries not found. The project needs to be built before packaging.',
-                'Build and Package',
-                'Package Anyway',
-                'Cancel'
-            );
-
-            if (shouldBuild === 'Cancel') {
-                return;
-            } else if (shouldBuild === 'Build and Package') {
-                vscode.window.showInformationMessage('Building project first...');
-                try {
-                    await vscode.commands.executeCommand('ue5.buildDevelopment');
-                } catch (buildError) {
-                    throw new Error('Failed to build project before packaging');
-                }
-            }
-        }
-
-        // Build the UAT command arguments
         const uatArgs = [
             'BuildCookRun',
             `-project=${project.uprojectPath}`,
@@ -355,192 +718,30 @@ export class CommandRegistry {
             '-noxge'
         ];
 
-        console.log(`Packaging command: "${runUATPath}" ${uatArgs.join(' ')}`);
-
-        // Show progress with cancellation support
         await vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
             title: `Packaging ${project.name}`,
             cancellable: true
         }, async (progress, token) => {
-            return new Promise<void>((resolve, reject) => {
-                progress.report({ increment: 0, message: `Starting packaging for ${platform} ${configuration}...` });
-
-                // Use execa for bulletproof command execution
-                const subprocess = execa(runUATPath, uatArgs, {
-                    cwd: project.path,
-                    env: {
-                        ...process.env,
-                        PATH: process.env.PATH + (process.platform === 'win32' 
-                            ? `;${path.join(enginePath, 'Engine', 'Binaries', 'Win64')}`
-                            : `:${path.join(enginePath, 'Engine', 'Binaries', 'ThirdParty')}`
-                        )
-                    },
-                    stdio: 'pipe',
-                    windowsHide: true
-                });
-
-                let totalOutput = '';
-                let totalError = '';
-                let currentStep = '';
-                let progressValue = 0;
-                let lastProgressUpdate = 0;
-
-                // Handle cancellation
-                token.onCancellationRequested(() => {
-                    subprocess.kill('SIGTERM');
-                    reject(new Error('Packaging cancelled by user'));
-                });
-
-                // Parse stdout for progress
-                if (subprocess.stdout) {
-                    subprocess.stdout.on('data', (data: Buffer) => {
-                        const output = data.toString();
-                        totalOutput += output;
-                        console.log(output);
-
-                        // Parse progress from UAT output
-                        const lines = output.split('\n');
-                        for (const line of lines) {
-                            const trimmedLine = line.trim();
-
-                            // Detect different packaging phases
-                            if (trimmedLine.includes('Parsing command line') || trimmedLine.includes('Setting up command environment')) {
-                                currentStep = 'Initializing...';
-                                progressValue = 5;
-                            } else if (trimmedLine.includes('Compiling') || (trimmedLine.includes('Building') && trimmedLine.includes('Editor'))) {
-                                currentStep = 'Building project...';
-                                progressValue = 15;
-                            } else if (trimmedLine.includes('Cook by the book') || trimmedLine.includes('Cooking') || trimmedLine.includes('LogCook:')) {
-                                currentStep = 'Cooking content...';
-                                progressValue = 35;
-                            } else if (trimmedLine.includes('Staging files') || trimmedLine.includes('***** STAGE COMMAND STARTED')) {
-                                currentStep = 'Staging files...';
-                                progressValue = 70;
-                            } else if (trimmedLine.includes('Creating pak file') || trimmedLine.includes('UnrealPak')) {
-                                currentStep = 'Creating package...';
-                                progressValue = 85;
-                            } else if (trimmedLine.includes('Moving staged files') || trimmedLine.includes('***** ARCHIVE COMMAND STARTED')) {
-                                currentStep = 'Finalizing...';
-                                progressValue = 95;
-                            } else if (trimmedLine.includes('BUILD SUCCESSFUL') || trimmedLine.includes('AutomationTool exiting with ExitCode=0')) {
-                                currentStep = 'Completed!';
-                                progressValue = 100;
-                            }
-
-                            // Update progress if we detected a new step
-                            if (currentStep && progressValue > lastProgressUpdate) {
-                                progress.report({
-                                    increment: progressValue - lastProgressUpdate,
-                                    message: currentStep
-                                });
-                                lastProgressUpdate = progressValue;
-                                currentStep = '';
-                            }
-
-                            // Look for specific progress indicators
-                            const progressMatch = trimmedLine.match(/(\d+)%/);
-                            if (progressMatch) {
-                                const percent = parseInt(progressMatch[1]);
-                                if (percent > lastProgressUpdate) {
-                                    progress.report({
-                                        increment: percent - lastProgressUpdate,
-                                        message: `Processing... ${percent}%`
-                                    });
-                                    lastProgressUpdate = percent;
-                                }
-                            }
-                        }
-                    });
-                }
-
-                // Handle stderr
-                if (subprocess.stderr) {
-                    subprocess.stderr.on('data', (data: Buffer) => {
-                        const output = data.toString();
-                        totalError += output;
-                        console.error(output);
-
-                        // Check for common errors
-                        if (output.toLowerCase().includes('error') && !output.toLowerCase().includes('warning')) {
-                            progress.report({ message: `Error detected: ${output.substring(0, 50)}...` });
-                        }
-                    });
-                }
-
-                // Handle completion using execa's promise
-                subprocess.then((result) => {
-                    console.log(`UAT process completed successfully`);
-                    console.log('Full stdout:', totalOutput);
-                    
-                    progress.report({ increment: 100, message: 'Packaging completed successfully!' });
-
-                    vscode.window.showInformationMessage(
-                        `Project packaged successfully for ${platform} ${configuration}`,
-                        'Open Output Folder'
-                    ).then(selection => {
-                        if (selection === 'Open Output Folder') {
-                            vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(outputPath));
-                        }
-                    });
-
-                    resolve();
-                }).catch((error: any) => {
-                    console.log(`UAT process failed with error:`, error);
-                    console.log('Full stdout:', totalOutput);
-                    console.log('Full stderr:', totalError);
-
-                    // Enhanced error analysis
-                    const allOutput = totalOutput + '\n' + totalError + '\n' + (error.stderr || '') + '\n' + (error.stdout || '');
-                    let errorMessage = `Packaging failed with exit code ${error.exitCode || 'unknown'}`;
-
-                    // Look for specific error patterns
-                    if (allOutput.includes('Could not find') && allOutput.includes('.uproject')) {
-                        errorMessage = 'Project file not found or invalid path';
-                    } else if (allOutput.includes('Visual Studio') || allOutput.includes('MSVC')) {
-                        errorMessage = 'Visual Studio build tools not found. Install Visual Studio 2022 with C++ tools.';
-                    } else if (allOutput.includes('Windows SDK')) {
-                        errorMessage = 'Windows SDK not found. Install Windows 10/11 SDK.';
-                    } else if (allOutput.includes('UnrealBuildTool') && allOutput.includes('failed')) {
-                        errorMessage = 'Build failed. Try building the project in Development configuration first.';
-                    } else if (allOutput.includes('Cook') && allOutput.includes('failed')) {
-                        errorMessage = 'Content cooking failed. Check for corrupted assets or invalid references.';
-                    } else if (allOutput.includes('AutomationTool') && allOutput.includes('exception')) {
-                        errorMessage = 'UAT automation tool encountered an internal error';
-                    } else if (error.message && error.message.includes('ENOENT')) {
-                        errorMessage = 'RunUAT.bat not found. Check your engine path configuration.';
-                    } else {
-                        // Try to extract the last few error lines
-                        const errorLines = allOutput.split('\n').filter(line =>
-                            line.toLowerCase().includes('error') &&
-                            !line.toLowerCase().includes('warning') &&
-                            line.trim().length > 0
-                        );
-
-                        if (errorLines.length > 0) {
-                            errorMessage = errorLines.slice(-2).join('\n');
-                        }
-                    }
-
-                    // Show detailed error with option to view full log
-                    vscode.window.showErrorMessage(
-                        errorMessage,
-                        'View Full Log'
-                    ).then(selection => {
-                        if (selection === 'View Full Log') {
-                            // Create a new untitled document with the full log
-                            vscode.workspace.openTextDocument({
-                                content: `UAT Packaging Log (Execa)\n${'='.repeat(50)}\n\nCommand: "${runUATPath}" ${uatArgs.join(' ')}\n\nExit Code: ${error.exitCode || 'unknown'}\n\nStdout:\n${totalOutput}\n\nStderr:\n${totalError}\n\nError Object:\n${JSON.stringify(error, null, 2)}`,
-                                language: 'log'
-                            }).then(doc => {
-                                vscode.window.showTextDocument(doc);
-                            });
-                        }
-                    });
-
-                    reject(new Error(errorMessage));
-                });
+            progress.report({ increment: 0, message: `Starting packaging for ${platform} ${configuration}...` });
+            
+            const result = await this.executeCommand(runUATPath, uatArgs, {
+                cwd: project.path,
+                timeout: 60 * 60 * 1000 // 1 hour timeout
             });
+
+            if (result.code === 0) {
+                vscode.window.showInformationMessage(
+                    `Project packaged successfully for ${platform} ${configuration}`,
+                    'Open Output Folder'
+                ).then(selection => {
+                    if (selection === 'Open Output Folder') {
+                        vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(outputPath));
+                    }
+                });
+            } else {
+                throw new Error(`Packaging failed with exit code ${result.code}`);
+            }
         });
     }
 

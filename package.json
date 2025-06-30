@@ -34,6 +34,24 @@
                 "icon": "$(play)"
             },
             {
+                "command": "ue5.showEngineOutput",
+                "title": "Show Engine Output",
+                "category": "UE5",
+                "icon": "$(output)"
+            },
+            {
+                "command": "ue5.clearEngineOutput",
+                "title": "Clear Engine Output",
+                "category": "UE5",
+                "icon": "$(clear-all)"
+            },
+            {
+                "command": "ue5.openEngineLogFile",
+                "title": "Open Engine Log File",
+                "category": "UE5",
+                "icon": "$(file-text)"
+            },
+            {
                 "command": "ue5.generateProjectFiles",
                 "title": "Generate Project Files",
                 "category": "UE5",
@@ -173,6 +191,18 @@
                     "when": "ue5.projectDetected"
                 },
                 {
+                    "command": "ue5.showEngineOutput",
+                    "when": "ue5.projectDetected"
+                },
+                {
+                    "command": "ue5.clearEngineOutput",
+                    "when": "ue5.projectDetected"
+                },
+                {
+                    "command": "ue5.openEngineLogFile",
+                    "when": "ue5.projectDetected"
+                },
+                {
                     "command": "ue5.generateProjectFiles",
                     "when": "ue5.projectDetected"
                 },
@@ -230,6 +260,35 @@
                     "type": "boolean",
                     "default": true,
                     "description": "Show build output in output panel"
+                },
+                "ue5.useTerminalForEngine": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Use VS Code terminal for engine output (recommended for interactive logs)"
+                },
+                "ue5.engineLoggingLevel": {
+                    "type": "string",
+                    "default": "Normal",
+                    "enum": [
+                        "Minimal",
+                        "Normal",
+                        "Verbose",
+                        "VeryVerbose"
+                    ],
+                    "description": "Engine logging verbosity level"
+                },
+                "ue5.autoShowEngineOutput": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Automatically show the engine output channel/terminal when launching"
+                },
+                "ue5.engineLaunchArgs": {
+                    "type": "array",
+                    "default": [
+                        "-log",
+                        "-stdout"
+                    ],
+                    "description": "Additional command line arguments for engine launch"
                 }
             }
         }
