@@ -2,7 +2,7 @@
     "name": "ue5-dev-tools",
     "displayName": "UE5 Development Tools",
     "description": "Comprehensive development tools for Unreal Engine 5 projects",
-    "version": "4.0.1",
+    "version": "4.0.3",
     "publisher": "Far-Beyond-LLC",
     "license": "MIT",
     "repository": {
@@ -16,7 +16,9 @@
         "Other"
     ],
     "activationEvents": [
-        "workspaceContains:**/*.uproject"
+        "onStartupFinished",
+        "workspaceContains:**/*.uproject",
+        "onCommand:ue5.openFile"
     ],
     "main": "./out/extension.js",
     "files": [

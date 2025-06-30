@@ -33,21 +33,24 @@ export class UE5DevTools {
             this.debugConsole = UE5DebugConsole.getInstance(context);
             console.log('✅ Debug console initialized');
 
-            const project = await this.projectManager.detectProject();
-            
-            if (project) {
-                await this.setupProject(project, context);
-            } else {
-                console.log('ℹ️  No UE5 project detected in current workspace');
-            }
-
-            // Register commands (this will also initialize the debug console reference in CommandRegistry)
+            // Always register commands first (regardless of project detection)
             this.commandRegistry.registerCommands(context, {
                 projectManager: this.projectManager,
                 buildManager: this.buildManager,
                 configurationManager: this.configurationManager,
                 solutionExplorer: this.solutionExplorer
             });
+            console.log('✅ Commands registered');
+
+            const project = await this.projectManager.detectProject();
+            
+            if (project) {
+                await this.setupProject(project, context);
+            } else {
+                console.log('ℹ️  No UE5 project detected in current workspace');
+                // Set context to false so UE5-specific UI elements are hidden
+                await vscode.commands.executeCommand('setContext', 'ue5.projectDetected', false);
+            }
 
             console.log('🎉 UE5 Development Tools initialized successfully');
             
