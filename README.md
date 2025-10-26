@@ -35,9 +35,9 @@ Plugins show up in the solution explorer under the Plugins folder. Right-click b
 
 ```json
 {
-  "ue5.enginePath": "C:\\Program Files\\Epic Games\\UE_5.6",
-  "ue5.defaultBuildConfiguration": "Development",
-  "ue5.defaultPlatform": "Win64"
+  "ue5devtools.enginePath": "C:\\Program Files\\Epic Games\\UE_5.6",
+  "ue5devtools.defaultBuildConfiguration": "Development",
+  "ue5devtools.defaultPlatform": "Win64"
 }
 ```
 
