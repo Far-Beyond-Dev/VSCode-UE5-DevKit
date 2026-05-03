@@ -14,13 +14,16 @@ export class PathUtils {
 
         // Auto-detect engine path
         const commonPaths = [
+            'C:\\Program Files\\Epic Games\\UE_5.7',
             'C:\\Program Files\\Epic Games\\UE_5.6',
             'C:\\Program Files\\Epic Games\\UE_5.5',
             'C:\\Program Files\\Epic Games\\UE_5.4',
             'C:\\Program Files\\Epic Games\\UE_5.3',
+            'C:\\Program Files (x86)\\Epic Games\\UE_5.7',
             'C:\\Program Files (x86)\\Epic Games\\UE_5.6',
             'C:\\Program Files (x86)\\Epic Games\\UE_5.5',
             'C:\\Program Files (x86)\\Epic Games\\UE_5.4',
+            'D:\\Epic Games\\UE_5.7',
             'D:\\Epic Games\\UE_5.6',
             'D:\\Epic Games\\UE_5.5',
             'D:\\Epic Games\\UE_5.4',
